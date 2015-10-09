@@ -1,8 +1,8 @@
 # Site settings
-title: public notebook
+title: yet another devlog
 email: your-email@domain.com
 description: > # this means to ignore newlines until "baseurl:"
-  thoughts maybe worth recording and sharing
+  ∞
 # baseurl: "" # the subpath of your site, e.g. /blog/
 # url: "http://yourdomain.com" # the base hostname & protocol for your site
 # twitter_username: jekyllrb
