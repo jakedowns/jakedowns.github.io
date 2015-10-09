@@ -7,3 +7,4 @@ Testing out TinyPress. Looks promising!
 
 Testing posting an *update*.
 
+This is great. Way easier than managing Jekyll files by hand!
