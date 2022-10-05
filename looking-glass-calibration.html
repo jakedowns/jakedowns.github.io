@@ -21,7 +21,7 @@
                 `<br/><p>calibration values for custom glsl quilt shaders <a target="_blank" href="https://github.com/jakedowns/reshade-shaders/tree/main/interlaced-shader">Click here for instructions on how to use the Citra interlaced shader with Looking Glass</a>` +
                 `</p><pre>const float slope = ${msg.devices[0].calibration.slope.value};
 const float center = ${msg.devices[0].calibration.center.value};
-const float pitch = ${msg.devices[0].calibration.pitch.value};</pre><br/>Extra debug info:<br/><pre>${JSON.stringify(msg)}`
+const float pitch = ${msg.devices[0].calibration.pitch.value};</pre><br/>Extra debug info:<br/><pre>${JSON.stringify(msg,null,2)}`
             );
             
           } else {
