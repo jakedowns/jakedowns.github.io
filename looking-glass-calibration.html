@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+  <link rel="stylesheet" href="/src/styles.css" />
+  <script
+    type="text/javascript"
+    src="https://unpkg.com/holoplay-core@0.0.9/dist/holoplaycore.js"
+  ></script>
+  <script type="text/javascript">
+    let client;
+
+    function getCalibration() {
+      showUpdate("Reading Calibration...");
+      client = new HoloPlayCore.Client(
+        (msg) => {
+          let version = msg.version;
+          console.log("msg");
+          if (msg.devices.length != 0) {
+            //showDefault();
+            console.log("message", msg);
+            let calib = msg.devices[0].calibration;
+            showUpdate(
+              `Communication successful! You're running Looking Glass Bridge ${version}.` +
+                `<br/><p>calibration values for custom glsl quilt shaders <a target="_blank" href="https://github.com/jakedowns/reshade-shaders/tree/main/interlaced-shader">Click here for instructions on how to use the Citra interlaced shader with Looking Glass</a>` +
+                `</p><pre>
+const float width = ${calib?.screenW?.value?.toFixed(1)}f;
+const float height = ${calib?.screenH?.value?.toFixed(1)}f;
+const float dpi = ${calib?.DPI?.value?.toFixed(1)};
+const float slope = ${calib?.slope?.value};
+const float center = ${calib?.center?.value};
+const float pitch = ${calib?.pitch?.value};
+const int invView = ${calib?.invView?.value};
+const float displayAspect = ${
+                  (calib?.screenW?.value ?? 1) / (calib?.screenH?.value ?? 1)
+                };
+const int ri = 0;
+const int bi = 2;
+</pre><br/>Extra debug info:<br/><pre style="white-space: pre-wrap;">${JSON.stringify(
+                  msg,
+                  null,
+                  2
+                )}</pre>`
+            );
+          } else {
+            showError(
+              `Error; no Looking Glass detected. You're running Looking Glass Bridge ${version}. Please make sure provided cables are securely connected to both your computer and the Looking Glass.`
+            );
+          }
+        },
+        (err) => {
+          showError(
+            "Error: Please make sure Looking Glass Bridge is running and try test again. Note that this test will not work on MacOS using Safari."
+          );
+        }
+      );
+    }
+
+    //     function showDefault() {
+    //       //let quiltUrl = "/public/j_smf_lightfield_qs5x9.png";
+    //       //let quiltUrl = "https://i.ytimg.com/vi/p_RNxvaP4gE/maxresdefault.jpg";
+    //       //let quiltUrl = "https://i.imgur.com/cOWWJZV.jpg";
+    //       //let quiltUrl = "https://i.imgur.com/XLZVkLu.png";
+    //       //let quiltUrl = "https://i.imgur.com/zHhLfLg.jpg";
+    //       let quiltUrl = "https://i.imgur.com/KfwNCXQ.jpg";
+    //       let xhttp = new XMLHttpRequest();
+    //       xhttp.responseType = "arraybuffer";
+    //       xhttp.onreadystatechange = function () {
+    //         if (this.readyState == 4) {
+    //           if (this.status == 200) {
+    //             const quiltData = new Uint8Array(this.response);
+    //             const showCmd = new ShowMessage(
+    //               // {
+    //               //   vx: 12,
+    //               //   vy: 1,
+    //               //   //vtotal: 9,
+    //               //   invert: 0,
+    //               //   aspect: 0.75,
+    //               //   overscan: 1
+    //               // },
+    //               { vx: 12, vy: 1, invert: 0, aspect: 1 },
+    //               quiltData,
+    //               0
+    //             );
+    //             client.sendMessage(showCmd);
+    //             //.then(() => alert("Quilt displayed!"));
+    //           } else {
+    //             console.log("Could not load " + quiltUrl + "!");
+    //           }
+    //         }
+    //       };
+    //       xhttp.open("GET", quiltUrl, true);
+    //       xhttp.send();
+    //     }
+
+    function showError(errorMessage) {
+      document.getElementById("testStatus").style = "color: red";
+      document.getElementById("testStatus").innerHTML = errorMessage;
+    }
+
+    function showUpdate(updateMessage) {
+      document.getElementById("testStatus").style = "color: green";
+      document.getElementById("testStatus").innerHTML = updateMessage;
+    }
+
+    document.addEventListener("DOMContentLoaded", function (event) {
+      getCalibration();
+    });
+  </script>
+  <head></head>
+  <body>
+    <button onClick="getCalibration()">Read Calibration</button>
+    <div id="testStatus"></div>
+  </body>
+</html>
