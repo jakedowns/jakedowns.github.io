@@ -1,4 +1,4 @@
-||proj||url||source||
+| proj | url | source |
 |---|---|--|
 | WebXR | https://jakedowns.github.io/webxr.html | [source](/webxr.html) |
 | StarPages | https://jakedowns.github.io/starpages/ | [source](/webxr.html) |
