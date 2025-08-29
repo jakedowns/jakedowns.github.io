@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ellipses Drawer</title>
+  <style>
+    body {
+      background: #181818;
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+    #controls {
+      margin: 18px 0 8px 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+    }
+    label {
+      font-size: 14px;
+      margin-right: 4px;
+    }
+    input[type="range"] {
+      width: 80px;
+    }
+    canvas {
+      background: #181818;
+      border: 1px solid #333;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <h2>Ellipses Drawer</h2>
+  <div id="controls">
+    <label>Width <input id="w" type="range" min="10" max="200" value="80"></label>
+    <label>Height <input id="h" type="range" min="10" max="200" value="40"></label>
+    <label>Rotation <input id="rot" type="range" min="0" max="360" value="0"></label>
+    <label>Color <input id="col" type="color" value="#ffffff"></label>
+    <label>Opacity <input id="alpha" type="range" min="0" max="1" step="0.01" value="1"></label>
+    <button id="clear">Clear</button>
+  </div>
+  <canvas id="c" width="800" height="500"></canvas>
+  <div id="tip-preview" class="hidden"></div>
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    let drawing = false, last = null;
+
+    // Controls
+    const w = document.getElementById('w');
+    const h = document.getElementById('h');
+    const rot = document.getElementById('rot');
+    const col = document.getElementById('col');
+    const alpha = document.getElementById('alpha');
+    const clearBtn = document.getElementById('clear');
+    const tipPreview = document.getElementById('tip-preview');
+
+    function getParams() {
+      return {
+        width: +w.value,
+        height: +h.value,
+        rotation: +rot.value * Math.PI / 180,
+        color: col.value,
+        alpha: +alpha.value
+      };
+    }
+
+    function createTipPreview(params) {
+      const svg = `
+        <svg width="${params.width}" height="${params.height}" viewBox="0 0 ${params.width} ${params.height}">
+          <ellipse 
+            cx="${params.width/2}" 
+            cy="${params.height/2}" 
+            rx="${params.width/2}" 
+            ry="${params.height/2}"
+            fill="${params.color}"
+            opacity="${params.alpha}"
+            transform="rotate(${params.rotation * 180 / Math.PI} ${params.width/2} ${params.height/2})"
+          />
+        </svg>
+      `;
+      return svg;
+    }
+
+    function updateTipPreview(e) {
+      const params = getParams();
+      tipPreview.innerHTML = createTipPreview(params);
+      tipPreview.style.left = (e.clientX + 10) + 'px';
+      tipPreview.style.top = (e.clientY + 10) + 'px';
+      tipPreview.classList.remove('hidden');
+    }
+
+    function drawEllipse(x, y, params) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(params.rotation);
+      ctx.globalAlpha = params.alpha;
+      ctx.fillStyle = params.color;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, params.width/2, params.height/2, 0, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+
+    function interpolateAndDraw(from, to, params) {
+      const dist = Math.hypot(to.x - from.x, to.y - from.y);
+      const steps = Math.max(2, Math.ceil(dist / 4));
+      for (let i = 1; i <= steps; ++i) {
+        const t = i / steps;
+        const x = lerp(from.x, to.x, t);
+        const y = lerp(from.y, to.y, t);
+        drawEllipse(x, y, params);
+      }
+    }
+
+    canvas.addEventListener('pointerdown', e => {
+      drawing = true;
+      const rect = canvas.getBoundingClientRect();
+      last = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    });
+
+    canvas.addEventListener('pointermove', e => {
+      if (!drawing) return;
+      const rect = canvas.getBoundingClientRect();
+      const curr = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      const params = getParams();
+      interpolateAndDraw(last, curr, params);
+      last = curr;
+    });
+
+    canvas.addEventListener('pointerup', () => { drawing = false; last = null; });
+    canvas.addEventListener('pointerleave', () => { drawing = false; last = null; });
+
+    // Tip preview events
+    canvas.addEventListener('mousemove', updateTipPreview);
+    canvas.addEventListener('mouseleave', () => tipPreview.classList.add('hidden'));
+    canvas.addEventListener('pointerdown', () => tipPreview.classList.add('hidden'));
+    canvas.addEventListener('pointerup', () => tipPreview.classList.remove('hidden'));
+
+    clearBtn.onclick = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+  </script>
+</body>
+</html>
