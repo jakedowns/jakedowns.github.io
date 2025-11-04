@@ -99,10 +99,10 @@
         bloomFolder.add(bloomPass, 'strength', 0, 3).onChange(value => bloomPass.strength = Number(value));
         bloomFolder.add(bloomPass, 'radius', 0, 1).onChange(value => bloomPass.radius = Number(value));
         bloomFolder.add(bloomPass, 'threshold', 0, 1).onChange(value => bloomPass.threshold = Number(value));
-        bloomFolder.open();
+        bloomFolder.close();
 
         // Input controls
-        const inputParams = { pressToRepel: true };
+        const inputParams = { pressToRepel: false };
         const inputFolder = gui.addFolder('Input');
         inputFolder.add(inputParams, 'pressToRepel').name('Press to repel').onChange(v => {
             uniformsVelocity.pressSign.value = v ? -1.0 : 1.0;
@@ -194,7 +194,7 @@
         uniformsVelocity.inertia = { value: 0.98 };
         uniformsVelocity.maxVelocity = { value: 5.0 };
         uniformsVelocity.damping = { value: 0.93 };
-        uniformsVelocity.pressSign = { value: -1.0 }; // -1.0 means press repels; 1.0 means press attracts
+        uniformsVelocity.pressSign = { value: 1.0 }; // -1.0 means press repels; 1.0 means press attracts
 
         const error = gpuCompute.init();
         if (error !== null) {
@@ -455,8 +455,11 @@
         // Touch event handling for mobile
         function onTouchMove(event) {
             if (event.touches.length > 0) {
-                mouse.x = (event.touches[0].clientX / window.innerWidth) * 2 - 1;
-                mouse.y = -(event.touches[0].clientY / window.innerHeight) * 2 + 1;
+                // Compute aspect-correct NDC for Three.js based on canvas size
+                const aspect = window.innerWidth / window.innerHeight;
+                // Normalize touch X/Y to [-1, 1] and correct X for aspect ratio
+                mouse.x = (((event.touches[0].clientX / window.innerWidth) * 2 - 1) * aspect) / Math.max(aspect, 1);
+                mouse.y = -((event.touches[0].clientY / window.innerHeight) * 2 - 1) / Math.max(1 / aspect, 1);
 
                 mouseMoving = true;
                 if (mouseMoveTimeout) {
@@ -466,7 +469,25 @@
                     mouseMoving = false;
                 }, 500);
             }
-            event.preventDefault(); // Prevent scrolling
+            // if the element being touched has classname lil-gui or is a descendent of a element with that classname, 
+            // DON'T prevent default, otherwise, do...
+            // if the element being touched has classname lil-gui or is a descendent of a element with that classname, 
+            // DON'T prevent default, otherwise, do...
+            let el = event.target;
+            let shouldPrevent = true;
+            while (el) {
+                if (
+                    (el.classList && el.classList.contains('lil-gui')) ||
+                    (el.className && typeof el.className === 'string' && el.className.indexOf('lil-gui') !== -1)
+                ) {
+                    shouldPrevent = false;
+                    break;
+                }
+                el = el.parentElement;
+            }
+            if (shouldPrevent) {
+                event.preventDefault(); // Prevent scrolling
+            }
         }
 
         function onTouchStart(event) {
@@ -475,7 +496,7 @@
                 // Simulate mousemove on touchstart to immediately update position
                 onTouchMove(event);
             }
-            event.preventDefault(); // Prevent scrolling
+            // event.preventDefault(); // Prevent scrolling
         }
 
         function onTouchEnd(event) {
