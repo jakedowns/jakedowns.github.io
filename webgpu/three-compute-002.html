@@ -59,6 +59,7 @@
         import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
         import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
         // Scene setup
         const scene = new THREE.Scene();
@@ -81,6 +82,14 @@
             0.0  // threshold
         );
         composer.addPass(bloomPass);
+
+        // GUI setup
+        const gui = new GUI();
+        const bloomFolder = gui.addFolder('Bloom');
+        bloomFolder.add(bloomPass, 'strength', 0, 3).onChange(value => bloomPass.strength = Number(value));
+        bloomFolder.add(bloomPass, 'radius', 0, 1).onChange(value => bloomPass.radius = Number(value));
+        bloomFolder.add(bloomPass, 'threshold', 0, 1).onChange(value => bloomPass.threshold = Number(value));
+        bloomFolder.open();
 
         // Grid parameters
         const GRID_SIZE = 64;
@@ -348,11 +357,47 @@
             `,
             transparent: true,
             blending: THREE.AdditiveBlending,
-            depthWrite: false
+            depthWrite: false,
+            depthTest: false // Disable depth test for dynamic points
         });
 
         const points = new THREE.Points(geometry, pointMaterial);
+        points.renderOrder = 1; // Render dynamic points after static points
         scene.add(points);
+
+        // Static points for origin grid
+        const staticPointMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                originTexture: { value: createOriginTexture() },
+                pointSize: { value: 5.0 } // Smaller size for static dots
+            },
+            vertexShader: `
+                uniform sampler2D originTexture;
+                uniform float pointSize;
+                
+                void main() {
+                    vec4 origin = texture2D(originTexture, uv);
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(origin.xyz, 1.0);
+                    gl_PointSize = pointSize;
+                }
+            `,
+            fragmentShader: `
+                void main() {
+                    // Circular point
+                    vec2 coord = gl_PointCoord - vec2(0.5);
+                    if (dot(coord, coord) > 0.25) discard;
+                    
+                    gl_FragColor = vec4(0.0, 1.0, 0.0, 0.1); // Green color
+                }
+            `,
+            transparent: true,
+            blending: THREE.NormalBlending, // Normal blending for static points
+            depthWrite: true, // Write to depth buffer for static points
+            depthTest: true // Test depth for static points
+        });
+
+        // const staticPoints = new THREE.Points(geometry, staticPointMaterial); // Reuse geometry
+        // scene.add(staticPoints);
 
         // Mouse tracking
         const mouse = new THREE.Vector2();
