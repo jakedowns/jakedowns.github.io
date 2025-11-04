@@ -28,6 +28,9 @@
             left: 50%;
             margin-left: -250px;
         }
+        a {
+            color: white;
+        }
         .credits {
             position: absolute;
             bottom: 10px;
@@ -37,9 +40,6 @@
             margin: 0 auto;
             left: 50%;
             margin-left: -250px;
-        }
-        a {
-            color: white;
         }
     </style>
 </head>
@@ -56,6 +56,9 @@
     <script type="module">
         import * as THREE from 'three';
         import { GPUComputationRenderer } from 'three/addons/misc/GPUComputationRenderer.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
         // Scene setup
         const scene = new THREE.Scene();
@@ -66,6 +69,18 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(renderer.domElement);
+
+        // Post-processing setup
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            0.5, // strength
+            0.0, // radius
+            0.0  // threshold
+        );
+        composer.addPass(bloomPass);
 
         // Grid parameters
         const GRID_SIZE = 64;
@@ -142,7 +157,7 @@
         uniformsPosition.textureVel = { value: null };
         uniformsPosition.mousePos = { value: new THREE.Vector2() };
         uniformsPosition.mouseInfluence = { value: 0.0 };
-        uniformsPosition.returnSpeed = { value: 0.1 };
+        uniformsPosition.returnSpeed = { value: 0.05 };
         uniformsPosition.originTexture = { value: createOriginTexture() };
         
         uniformsVelocity.mousePos = { value: new THREE.Vector2() };
@@ -328,10 +343,12 @@
                     vec2 coord = gl_PointCoord - vec2(0.5);
                     if (dot(coord, coord) > 0.25) discard;
                     
-                    gl_FragColor = vec4(vColor, 1.0);
+                    gl_FragColor = vec4(vColor * 3.0, 1.0);
                 }
             `,
-            transparent: true
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
         });
 
         const points = new THREE.Points(geometry, pointMaterial);
@@ -390,7 +407,7 @@
             pointMaterial.uniforms.texturePosition.value = gpuCompute.getCurrentRenderTarget(positionVariable).texture;
             pointMaterial.uniforms.textureVel.value = gpuCompute.getCurrentRenderTarget(velocityVariable).texture;
             
-            renderer.render(scene, camera);
+            composer.render(); // Render through the composer
         }
 
         // Handle window resize
@@ -398,6 +415,8 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight); // Resize composer
+            bloomPass.setSize(window.innerWidth, window.innerHeight); // Resize bloom pass
         }
         window.addEventListener('resize', onWindowResize);
 
