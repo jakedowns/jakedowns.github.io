@@ -442,6 +442,45 @@
         window.addEventListener('mousedown', onMouseDown);
         window.addEventListener('mouseup', onMouseUp);
 
+        // Touch event handling for mobile
+        function onTouchMove(event) {
+            if (event.touches.length > 0) {
+                mouse.x = (event.touches[0].clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.touches[0].clientY / window.innerHeight) * 2 + 1;
+
+                mouseMoving = true;
+                if (mouseMoveTimeout) {
+                    clearTimeout(mouseMoveTimeout);
+                }
+                mouseMoveTimeout = setTimeout(() => {
+                    mouseMoving = false;
+                }, 500);
+            }
+            event.preventDefault(); // Prevent scrolling
+        }
+
+        function onTouchStart(event) {
+            if (event.touches.length > 0) {
+                mousePressed = true;
+                // Simulate mousemove on touchstart to immediately update position
+                onTouchMove(event);
+            }
+            event.preventDefault(); // Prevent scrolling
+        }
+
+        function onTouchEnd(event) {
+            mousePressed = false;
+            mouseMoving = false; // Stop influence when touch ends
+            if (mouseMoveTimeout) {
+                clearTimeout(mouseMoveTimeout);
+            }
+            event.preventDefault(); // Prevent scrolling
+        }
+
+        window.addEventListener('touchmove', onTouchMove, { passive: false });
+        window.addEventListener('touchstart', onTouchStart, { passive: false });
+        window.addEventListener('touchend', onTouchEnd, { passive: false });
+
         // Animation loop
         function animate() {
             requestAnimationFrame(animate);
