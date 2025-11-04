@@ -101,6 +101,14 @@
         bloomFolder.add(bloomPass, 'threshold', 0, 1).onChange(value => bloomPass.threshold = Number(value));
         bloomFolder.open();
 
+        // Input controls
+        const inputParams = { pressToRepel: true };
+        const inputFolder = gui.addFolder('Input');
+        inputFolder.add(inputParams, 'pressToRepel').name('Press to repel').onChange(v => {
+            uniformsVelocity.pressSign.value = v ? -1.0 : 1.0;
+        });
+        inputFolder.open();
+
         // Grid parameters
         const GRID_SIZE = 64;
         const TOTAL_POINTS = GRID_SIZE * GRID_SIZE;
@@ -186,6 +194,7 @@
         uniformsVelocity.inertia = { value: 0.98 };
         uniformsVelocity.maxVelocity = { value: 5.0 };
         uniformsVelocity.damping = { value: 0.93 };
+        uniformsVelocity.pressSign = { value: -1.0 }; // -1.0 means press repels; 1.0 means press attracts
 
         const error = gpuCompute.init();
         if (error !== null) {
@@ -252,6 +261,7 @@
                 uniform float inertia;
                 uniform float maxVelocity;
                 uniform float damping;
+                uniform float pressSign; // -1.0 press repels, 1.0 press attracts
 
                 void main() {
                     vec2 uv = gl_FragCoord.xy / resolution.xy;
@@ -273,9 +283,9 @@
                         float influenceFactor = 1.0 - clamp(distMag / influenceRange, 0.0, 1.0);
                         influenceFactor = pow(influenceFactor, 2.0);
                         
-                        // Apply force: positive (attractive) when not pressed, negative (repulsive) when pressed
+                        // Apply force: configurable by pressSign
                         if (distMag > 0.001) {
-                            float forceDirection = mousePressed > 0.5 ? -1.0 : 1.0;
+                            float forceDirection = mousePressed > 0.5 ? pressSign : -pressSign;
                             vec2 force = normalize(dist) * mouseStrength * influenceFactor * mouseInfluence * forceDirection;
                             currentVel.xy += force;
                         }
@@ -474,7 +484,7 @@
             if (mouseMoveTimeout) {
                 clearTimeout(mouseMoveTimeout);
             }
-            event.preventDefault(); // Prevent scrolling
+            // event.preventDefault(); // Prevent scrolling
         }
 
         window.addEventListener('touchmove', onTouchMove, { passive: false });
