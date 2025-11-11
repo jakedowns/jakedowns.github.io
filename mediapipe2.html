@@ -22,6 +22,7 @@
             flex-direction: column;
             align-items: center;
             gap: 1em;
+            position: relative; /* for absolute overlay alignment */
         }
 
         video,
@@ -38,6 +39,15 @@
         canvas {
             right: 0;
         }
+        #three_overlay {
+            width: 480px;
+            height: 640px;
+            background-color: transparent;
+        }
+
+        video {
+            display: none;
+        }
 
         h1 {
             margin-bottom: 1em;
@@ -50,6 +60,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
+    <!-- Three.js -->
+    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 </head>
 
 <body>
@@ -128,9 +140,10 @@
             const constraints = {
                 audio: false,
                 video: {
-                    // width: { ideal: 4096 },
-                    // height: { ideal: 2160 },
-                    facingMode: { ideal: facingMode }
+                    width: { ideal: 4096 },
+                    height: { ideal: 2160 },
+                    // facingMode: { ideal: facingMode }
+                    facingMode: facingMode
                 }
             };
             // Get media stream
@@ -278,6 +291,7 @@
         origOnResults(results);
 
         let leftPinch = false, rightPinch = false;
+        let pinchCenter = null; // normalized [0..1] coords in video space
 
         if (results.multiHandLandmarks && results.multiHandedness) {
             for (let i = 0; i < results.multiHandLandmarks.length; ++i) {
@@ -286,6 +300,13 @@
                 if (isPinching(landmarks)) {
                     if (handedness === 'Left') leftPinch = true;
                     if (handedness === 'Right') rightPinch = true;
+                    // Use the first detected pinching hand center
+                    if (!pinchCenter) {
+                        pinchCenter = {
+                            x: (landmarks[4].x + landmarks[8].x) * 0.5,
+                            y: (landmarks[4].y + landmarks[8].y) * 0.5
+                        };
+                    }
                 }
             }
         }
@@ -305,7 +326,150 @@
                 document.body.style.background = '';
             }
         }
+
+        // Three.js pinch interactions
+        handlePinchForThree(pinchCenter);
     }
     // Swap handler
     hands.onResults(bgPinchOnResults);
+</script>
+<script>
+    // Three.js overlay, cube, and pinch-based interaction with inertia
+    let threeScene = null;
+    let threeCamera = null;
+    let threeRenderer = null;
+    let threeRaycaster = null;
+    let threeCube = null;
+    let angularVelocityZ = 0;
+    let lastFrameTs = 0;
+    let dragActive = false;
+    let wasPinching = false;
+    let lastPinch = null; // { x: normalized 0..1, y: normalized 0..1 }
+
+    function initThreeOverlay() {
+        const container = document.getElementById('container');
+        const targetCanvas = document.getElementById('output_canvas');
+        if (!container || !targetCanvas || !window.THREE) return;
+
+        threeScene = new THREE.Scene();
+        threeCamera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
+        threeCamera.position.set(0, 0, 3);
+
+        threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
+        threeRenderer.domElement.id = 'three_overlay';
+        threeRenderer.domElement.style.position = 'absolute';
+        threeRenderer.domElement.style.top = '0';
+        threeRenderer.domElement.style.left = '0';
+        threeRenderer.domElement.style.pointerEvents = 'none';
+        container.appendChild(threeRenderer.domElement);
+
+        // Simple cube
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = new THREE.MeshStandardMaterial({ color: 0x66ccff, roughness: 0.4, metalness: 0.1 });
+        threeCube = new THREE.Mesh(geometry, material);
+        threeScene.add(threeCube);
+
+        // Lights
+        const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+        const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+        dir.position.set(2, 3, 4);
+        threeScene.add(ambient, dir);
+
+        threeRaycaster = new THREE.Raycaster();
+
+        layoutThreeOverlay();
+        window.addEventListener('resize', layoutThreeOverlay);
+        // In case fonts/layout change heights
+        window.addEventListener('orientationchange', layoutThreeOverlay);
+
+        lastFrameTs = performance.now();
+        requestAnimationFrame(threeAnimate);
+    }
+
+    function layoutThreeOverlay() {
+        if (!threeRenderer || !threeCamera) return;
+        const container = document.getElementById('container');
+        const targetCanvas = document.getElementById('output_canvas');
+        const w = targetCanvas.clientWidth;
+        const h = targetCanvas.clientHeight;
+        // Position overlay directly over the target canvas inside container
+        const left = targetCanvas.offsetLeft;
+        const top = targetCanvas.offsetTop;
+        threeRenderer.domElement.style.left = left + 'px';
+        threeRenderer.domElement.style.top = top + 'px';
+        threeRenderer.setSize(w, h, false);
+        threeCamera.aspect = w / Math.max(1, h);
+        threeCamera.updateProjectionMatrix();
+    }
+
+    function screenToNdcFromPinch(normalizedPinch) {
+        // MediaPipe gives normalized [0..1] in image space
+        // Convert to NDC: x_ndc in [-1,1], y_ndc in [-1,1] (y inverted)
+        const x = normalizedPinch.x * 2 - 1;
+        const y = -(normalizedPinch.y * 2 - 1);
+        return { x, y };
+    }
+
+    function handlePinchForThree(pinchCenterOrNull) {
+        const nowPinching = !!pinchCenterOrNull;
+        const nowTs = performance.now();
+
+        if (nowPinching && !wasPinching) {
+            // Pinch start
+            lastPinch = pinchCenterOrNull;
+            // Raycast to decide if we grab the cube
+            if (threeCamera && threeRaycaster && threeCube) {
+                const ndc = screenToNdcFromPinch(pinchCenterOrNull);
+                const vec2 = new THREE.Vector2(ndc.x, ndc.y);
+                threeRaycaster.setFromCamera(vec2, threeCamera);
+                const hits = threeRaycaster.intersectObjects([threeCube], true);
+                dragActive = hits.length > 0;
+            } else {
+                dragActive = false;
+            }
+        } else if (nowPinching && wasPinching) {
+            // Pinch move
+            if (dragActive && threeCube && lastPinch) {
+                const dxNorm = (pinchCenterOrNull.x - lastPinch.x);
+                // Map horizontal normalized movement to Z rotation
+                const angularDelta = dxNorm * Math.PI; // 180 deg per full width drag
+                const dt = Math.max(1e-3, (nowTs - (lastFrameTs || nowTs)) / 1000);
+                threeCube.rotation.z += angularDelta;
+                angularVelocityZ = angularDelta / dt;
+            }
+            lastPinch = pinchCenterOrNull;
+        } else if (!nowPinching && wasPinching) {
+            // Pinch end -> release with inertia
+            dragActive = false;
+            lastPinch = null;
+        }
+        wasPinching = nowPinching;
+    }
+
+    function threeAnimate(ts) {
+        const dt = Math.max(1e-3, (ts - lastFrameTs) / 1000);
+        lastFrameTs = ts;
+
+        // Inertial spin after release
+        if (!dragActive && threeCube && Math.abs(angularVelocityZ) > 1e-4) {
+            threeCube.rotation.z += angularVelocityZ * dt;
+            // Exponential damping
+            const damping = Math.exp(-3.2 * dt); // tweak friction
+            angularVelocityZ *= damping;
+            if (Math.abs(angularVelocityZ) < 1e-4) angularVelocityZ = 0;
+        }
+
+        if (threeRenderer && threeScene && threeCamera) {
+            threeRenderer.render(threeScene, threeCamera);
+        }
+        requestAnimationFrame(threeAnimate);
+    }
+
+    // Initialize once DOM is ready (elements exist)
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initThreeOverlay, { once: true });
+    } else {
+        initThreeOverlay();
+    }
 </script>
