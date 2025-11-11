@@ -36,7 +36,10 @@
         video.mirrored {
             transform: scaleX(-1);
         }
-
+        canvas {
+            width: 480px;
+            height: 640px;
+        }
         canvas.landscape {
             width: 640px;
             height: 480px;
@@ -196,10 +199,11 @@
                     newCamera.start();
                     //   alert('new cam:'+facingMode)
                     window.camera = newCamera; // update the reference globally, if desired
+                    layoutThreeOverlay();
                 },1000)
                 currentFacingMode = facingMode;
 
-
+                return new Promise(resolve => videoElement.onloadedmetadata = resolve);
             } catch (err) {
                 console.error(err)
                 console.error('Could not access camera: ' + err.message);
@@ -239,6 +243,8 @@
                 window.camera = newCamera;
                 // Optionally, update global facing mode reference
                 // currentFacingMode = null;
+                layoutThreeOverlay();
+                return new Promise(resolve => videoElement.onloadedmetadata = resolve);
             } catch (err) {
                 console.error(err);
                 alert('Could not access selected camera: ' + err.message);
@@ -298,6 +304,7 @@
 
         let leftPinch = false, rightPinch = false;
         let pinchCenter = null; // normalized [0..1] coords in video space
+        const pinchCenters = []; // collect multiple pinch centers
 
         if (results.multiHandLandmarks && results.multiHandedness) {
             for (let i = 0; i < results.multiHandLandmarks.length; ++i) {
@@ -313,6 +320,11 @@
                             y: (landmarks[4].y + landmarks[8].y) * 0.5
                         };
                     }
+                    // Collect all centers for two-hand scaling
+                    pinchCenters.push({
+                        x: (landmarks[4].x + landmarks[8].x) * 0.5,
+                        y: (landmarks[4].y + landmarks[8].y) * 0.5
+                    });
                 }
             }
         }
@@ -334,7 +346,11 @@
         }
 
         // Three.js pinch interactions
-        handlePinchForThree(pinchCenter);
+        if (pinchCenters.length >= 2) {
+            handleTwoPinchScale(pinchCenters[0], pinchCenters[1]);
+        } else {
+            handlePinchForThree(pinchCenter);
+        }
     }
     // Swap handler
     hands.onResults(bgPinchOnResults);
@@ -415,10 +431,10 @@
         requestAnimationFrame(threeAnimate);
 
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-            if(!isMobile){
-                document.getElementById('three_overlay').classList.add('landscape');
-                document.getElementById('output_canvas').classList.add('landscape');
-            }
+        if(!isMobile){
+            document.getElementById('three_overlay').classList.add('landscape');
+            document.getElementById('output_canvas').classList.add('landscape');
+        }
     }
 
     function layoutThreeOverlay() {
@@ -436,6 +452,7 @@
         threeCamera.aspect = w / Math.max(1, h);
         threeCamera.updateProjectionMatrix();
     }
+    window.layoutThreeOverlay = layoutThreeOverlay;
 
     function screenToNdcFromPinch(normalizedPinch) {
         // MediaPipe gives normalized [0..1] in image space
@@ -494,6 +511,30 @@
             lastPinch = null;
         }
         wasPinching = nowPinching;
+    }
+
+    function handleTwoPinchScale(pinchA, pinchB) {
+        // Disable drag rotation while scaling with two pinches
+        dragActive = false;
+        wasPinching = false;
+        lastPinch = null;
+
+        if (!threeCube || !canvasElement) return;
+        const rect = canvasElement.getBoundingClientRect();
+        const w = Math.max(1, rect.width);
+        const h = Math.max(1, rect.height);
+        // Convert normalized distances to pixels
+        const dxPx = (pinchA.x - pinchB.x) * w;
+        const dyPx = (pinchA.y - pinchB.y) * h;
+        const distPx = Math.hypot(dxPx, dyPx);
+        // Use canvas diagonal as max span
+        const maxPx = Math.hypot(w, h);
+        // Map 0..maxPx -> 0.1 .. 2.0
+        const t = Math.max(0, Math.min(1, distPx / maxPx));
+        const minScale = 0.1;
+        const maxScale = 2.0;
+        const s = minScale + t * (maxScale - minScale);
+        threeCube.scale.set(s, s, s);
     }
 
     function threeAnimate(ts) {
