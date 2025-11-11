@@ -76,8 +76,9 @@
     }
 
     function createTipPreview(params) {
+      const side = Math.max(params.width, params.height);
       const svg = `
-        <svg width="${params.width}" height="${params.height}" viewBox="0 0 ${params.width} ${params.height}">
+        <svg width="${side}" height="${side}" viewBox="0 0 ${side} ${side}">
           <ellipse 
             cx="${params.width/2}" 
             cy="${params.height/2}" 
@@ -146,6 +147,10 @@
     canvas.addEventListener('pointerleave', () => { drawing = false; last = null; });
 
     // Tip preview events
+    h.addEventListener('input', updateTipPreview);
+    w.addEventListener('input', updateTipPreview);
+    rot.addEventListener('input', updateTipPreview);
+    col.addEventListener('input', updateTipPreview);
     canvas.addEventListener('mousemove', updateTipPreview);
     canvas.addEventListener('mouseleave', () => tipPreview.classList.add('hidden'));
     canvas.addEventListener('pointerdown', () => tipPreview.classList.add('hidden'));
