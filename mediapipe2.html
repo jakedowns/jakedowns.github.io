@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>MediaPipe Handtracking Example</title>
+    <style>
+        body {
+            margin: 0;
+            background: #15172a;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: sans-serif;
+            min-height: 100vh;
+            justify-content: center;
+        }
+
+        #container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1em;
+        }
+
+        video,
+        canvas {
+            border-radius: 10px;
+            box-shadow: 0 2px 16px #0007;
+            max-width: 100vw;
+            background: #000;
+        }
+
+        video {
+            left: 0;
+        }
+        canvas {
+            right: 0;
+        }
+
+        h1 {
+            margin-bottom: 1em;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            color: #91b5f4;
+        }
+    </style>
+    <!-- MediaPipe Hands CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
+</head>
+
+<body>
+    <div id="container">
+        <h1>MediaPipe Handtracking Example</h1>
+        <video id="input_video" muted autoplay playsinline></video>
+        <canvas id="output_canvas" width="480" height="640"></canvas>
+    </div>
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+
+        // MediaPipe Hands setup
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.7
+        });
+
+        hands.onResults(onResults);
+
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            // Draw the video frame
+            canvasCtx.drawImage(
+                results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS,
+                        { color: '#00C3FF', lineWidth: 2.5 });
+                    drawLandmarks(canvasCtx, landmarks, { color: '#FFD700', lineWidth: 1 });
+                }
+            }
+            canvasCtx.restore();
+        }
+
+        // Camera/Webcam streaming setup
+        window.camera = null;
+    </script>
+
+    <div style="margin:1em 0;">
+        <label for="facing_mode_select"><strong>Camera:</strong></label>
+        <select id="facing_mode_select" style="font-size:1em;">
+            <option value="user">Front Facing</option>
+            <option value="environment">Rear Facing</option>
+        </select>
+
+        <label for="device_select" style="margin-left:2em;"><strong>Exact Device:</strong></label>
+        <select id="device_select" style="font-size:1em;">
+            <option value="">(Choose device...)</option>
+            <!-- Devices will be populated dynamically -->
+        </select>
+    </div>
+    <script>
+        // Reference to camera instance
+        //   let currentFacingMode = 'user';
+
+        // Helper to start MediaPipe camera with specified facingMode
+        async function startMediaPipeCamera(facingMode) {
+            // Patch: forcibly restart MediaPipe's camera frame loop
+            if (camera && typeof camera.stop === 'function') camera.stop();
+
+            // Stop previous stream if any
+            if (videoElement.srcObject) {
+                videoElement.srcObject.getTracks().forEach(track => track.stop());
+            }
+            // alert(facingMode);
+            // Find constraints for camera (prefer facing mode)
+            const constraints = {
+                audio: false,
+                video: {
+                    // width: { ideal: 4096 },
+                    // height: { ideal: 2160 },
+                    facingMode: { ideal: facingMode }
+                }
+            };
+            // Get media stream
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+                if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+                    navigator.mediaDevices.enumerateDevices().then(devices => {
+                        const videoInputs = devices.filter(device => device.kind === 'videoinput');
+                        console.log('Available cameras:', videoInputs);
+
+                        // populate #device_select with list of device names,
+                        // the value is the device id
+                        // Populate the #device_select dropdown
+                        const deviceSelect = document.getElementById('device_select');
+                        // Clear existing options except the placeholder
+                        deviceSelect.innerHTML = '<option value="">(Choose device...)</option>';
+                        videoInputs.forEach(device => {
+                            const option = document.createElement('option');
+                            option.value = device.deviceId;
+                            option.textContent = device.label || `Camera ${deviceSelect.length}`;
+                            deviceSelect.appendChild(option);
+                        });
+
+                    }).catch(e => {
+                        console.warn('Error enumerating media devices:', e);
+                    });
+                } else {
+                    console.warn('enumerateDevices() not supported on this browser.');
+                }
+
+                videoElement.srcObject = stream;
+                await videoElement.play();
+                
+                setTimeout(()=>{
+                    // Restart MediaPipe camera with updated facing mode
+                    const newCamera = new Camera(videoElement, {
+                        onFrame: async () => {
+                            await hands.send({ image: videoElement });
+                        },
+                        width: 640,
+                        height: 480
+                    });
+                    newCamera.start();
+                    //   alert('new cam:'+facingMode)
+                    window.camera = newCamera; // update the reference globally, if desired
+                },1000)
+                currentFacingMode = facingMode;
+
+
+            } catch (err) {
+                console.error(err)
+                console.error('Could not access camera: ' + err.message);
+            }
+        }
+
+        async function startMediaPipeCamera_EXACT_DEVICE_ID(selectedDeviceId) {
+            try {
+                // Stop any existing camera stream if needed
+                if (window.camera && window.camera.video) {
+                    let tracks = window.camera.video.srcObject && window.camera.video.srcObject.getTracks();
+                    if (tracks) tracks.forEach(track => track.stop());
+                }
+                // Get video element
+                const videoElement = document.getElementById('input_video');
+                // GetMedia with deviceId exact
+                const constraints = {
+                    video: {
+                        deviceId: { exact: selectedDeviceId },
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                };
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = stream;
+                await videoElement.play();
+
+                // Restart MediaPipe camera with selected device stream
+                const newCamera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await hands.send({ image: videoElement });
+                    },
+                    width: 640,
+                    height: 480
+                });
+                newCamera.start();
+                window.camera = newCamera;
+                // Optionally, update global facing mode reference
+                // currentFacingMode = null;
+            } catch (err) {
+                console.error(err);
+                alert('Could not access selected camera: ' + err.message);
+            }
+        }
+
+        // Setup facing mode switcher UI
+        document.getElementById('facing_mode_select').addEventListener('change', function (e) {
+            const facingMode = e.target.value;
+            startMediaPipeCamera(facingMode);
+        });
+
+        // setup device select change handler -> startMediaPipeCamera_EXACT_DEVICE_ID
+        // Listen for device selection changes and restart the camera with the chosen device
+        document.getElementById('device_select').addEventListener('change', function (e) {
+            const deviceId = e.target.value;
+            // If a device is selected, start camera with exact device ID
+            if (deviceId) {
+                // Provide a custom startMediaPipeCamera invocation that uses constraints with deviceId
+                // Define a variant to handle exact deviceId (if not already defined)
+                startMediaPipeCamera_EXACT_DEVICE_ID(deviceId);
+            }
+        });
+
+        // On load, use default facing mode IF on mobile (switch to rear camera)
+        document.addEventListener('DOMContentLoaded', () => {
+            // Try environment facing if on mobile
+            // const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            // if (isMobile) {
+            //   document.getElementById('facing_mode_select').value = 'environment';
+            startMediaPipeCamera('environment');
+            // }
+        });
+    </script>
+</body>
+
+</html>
+<script>
+    // Utility to detect pinch (thumb tip and index tip close together)
+    function isPinching(landmarks) {
+        // Thumb tip: 4
+        // Index tip: 8
+        const dx = landmarks[4].x - landmarks[8].x;
+        const dy = landmarks[4].y - landmarks[8].y;
+        const dz = (landmarks[4].z || 0) - (landmarks[8].z || 0);
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        return dist < 0.065; // Tweak threshold as needed
+    }
+
+    // Track pinch state to avoid flicker
+    let pinchBgState = null;
+
+    // Decorate the MediaPipe onResults handler to add the BG color logic
+    const origOnResults = onResults;
+    function bgPinchOnResults(results) {
+        origOnResults(results);
+
+        let leftPinch = false, rightPinch = false;
+
+        if (results.multiHandLandmarks && results.multiHandedness) {
+            for (let i = 0; i < results.multiHandLandmarks.length; ++i) {
+                const landmarks = results.multiHandLandmarks[i];
+                const handedness = results.multiHandedness[i].label; // "Left" or "Right"
+                if (isPinching(landmarks)) {
+                    if (handedness === 'Left') leftPinch = true;
+                    if (handedness === 'Right') rightPinch = true;
+                }
+            }
+        }
+
+        // Decide on BG color/state
+        let newState = null;
+        if (leftPinch) newState = 'green';
+        else if (rightPinch) newState = 'purple';
+
+        if (newState !== pinchBgState) {
+            pinchBgState = newState;
+            if (newState === 'green') {
+                document.body.style.background = '#357e40';
+            } else if (newState === 'purple') {
+                document.body.style.background = '#8d45ae';
+            } else {
+                document.body.style.background = '';
+            }
+        }
+    }
+    // Swap handler
+    hands.onResults(bgPinchOnResults);
+</script>
