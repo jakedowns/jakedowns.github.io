@@ -8,6 +8,7 @@
         body {
             margin: 0;
             background: #15172a;
+            transition: background-color .3s ease-out;
             color: #fff;
             display: flex;
             flex-direction: column;
@@ -32,17 +33,22 @@
             max-width: 100vw;
             background: #000;
         }
-
-        video {
-            left: 0;
+        video.mirrored {
+            transform: scaleX(-1);
         }
-        canvas {
-            right: 0;
+
+        canvas.landscape {
+            width: 640px;
+            height: 480px;
         }
         #three_overlay {
             width: 480px;
             height: 640px;
             background-color: transparent;
+        }
+        #three_overlay.landscape {
+            width: 640px;
+            height: 480px;
         }
 
         video {
@@ -67,8 +73,8 @@
 <body>
     <div id="container">
         <h1>MediaPipe Handtracking Example</h1>
-        <video id="input_video" muted autoplay playsinline></video>
-        <canvas id="output_canvas" width="480" height="640"></canvas>
+        <video id="input_video" class="mirrored" muted autoplay playsinline></video>
+        <canvas id="output_canvas"></canvas>
     </div>
     <script>
         const videoElement = document.getElementById('input_video');
@@ -279,7 +285,7 @@
         const dy = landmarks[4].y - landmarks[8].y;
         const dz = (landmarks[4].z || 0) - (landmarks[8].z || 0);
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        return dist < 0.065; // Tweak threshold as needed
+        return dist < 0.085; // Tweak threshold as needed
     }
 
     // Track pinch state to avoid flicker
@@ -340,6 +346,7 @@
     let threeRenderer = null;
     let threeRaycaster = null;
     let threeCube = null;
+    let threeHitMarker = null;
     let angularVelocityZ = 0;
     let lastFrameTs = 0;
     let dragActive = false;
@@ -357,6 +364,9 @@
 
         threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         threeRenderer.setPixelRatio(window.devicePixelRatio || 1);
+        // Enable soft shadows
+        threeRenderer.shadowMap.enabled = true;
+        threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
         threeRenderer.domElement.id = 'three_overlay';
         threeRenderer.domElement.style.position = 'absolute';
         threeRenderer.domElement.style.top = '0';
@@ -366,8 +376,10 @@
 
         // Simple cube
         const geometry = new THREE.BoxGeometry(1, 1, 1);
-        const material = new THREE.MeshStandardMaterial({ color: 0x66ccff, roughness: 0.4, metalness: 0.1 });
+        const material = new THREE.MeshStandardMaterial({ color: 0x66ccff, roughness: 0.4, metalness: 0.1, transparent: true, opacity: 0.8 });
         threeCube = new THREE.Mesh(geometry, material);
+        threeCube.castShadow = true;
+        threeCube.receiveShadow = true;
         threeScene.add(threeCube);
 
         // Lights
@@ -376,7 +388,23 @@
         dir.position.set(2, 3, 4);
         threeScene.add(ambient, dir);
 
+        // Point light near camera, slightly to the right, casting shadows
+        const point = new THREE.PointLight(0xffffff, 0.8, 0, 2);
+        point.castShadow = true;
+        point.shadow.mapSize.width = 1024;
+        point.shadow.mapSize.height = 1024;
+        point.position.set(0.6, 0.2, -0.5); // relative to camera
+        threeCamera.add(point);
+        threeScene.add(threeCamera);
+
         threeRaycaster = new THREE.Raycaster();
+
+        // Red sphere hit marker (initially hidden)
+        const markerGeom = new THREE.SphereGeometry(0.05, 24, 16);
+        const markerMat = new THREE.MeshStandardMaterial({ color: 0xff3333, emissive: 0x660000, roughness: 0.5, metalness: 0.0 });
+        threeHitMarker = new THREE.Mesh(markerGeom, markerMat);
+        threeHitMarker.visible = false;
+        threeScene.add(threeHitMarker);
 
         layoutThreeOverlay();
         window.addEventListener('resize', layoutThreeOverlay);
@@ -385,6 +413,12 @@
 
         lastFrameTs = performance.now();
         requestAnimationFrame(threeAnimate);
+
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            if(!isMobile){
+                document.getElementById('three_overlay').classList.add('landscape');
+                document.getElementById('output_canvas').classList.add('landscape');
+            }
     }
 
     function layoutThreeOverlay() {
@@ -425,6 +459,21 @@
                 threeRaycaster.setFromCamera(vec2, threeCamera);
                 const hits = threeRaycaster.intersectObjects([threeCube], true);
                 dragActive = hits.length > 0;
+                // Place/update hit marker at hit point, attach to cube so it follows rotations
+                if (hits.length > 0) {
+                    const hit = hits[0];
+                    const worldPoint = hit.point.clone();
+                    // Convert to cube local so it tracks rotation/transform
+                    const localPoint = threeCube.worldToLocal(worldPoint);
+                    if (threeHitMarker) {
+                        // Ensure marker is a child of the cube to stick to surface during rotation
+                        threeCube.add(threeHitMarker);
+                        threeHitMarker.position.copy(localPoint);
+                        threeHitMarker.visible = true;
+                    }
+                } else if (threeHitMarker) {
+                    threeHitMarker.visible = false;
+                }
             } else {
                 dragActive = false;
             }
@@ -435,7 +484,7 @@
                 // Map horizontal normalized movement to Z rotation
                 const angularDelta = dxNorm * Math.PI; // 180 deg per full width drag
                 const dt = Math.max(1e-3, (nowTs - (lastFrameTs || nowTs)) / 1000);
-                threeCube.rotation.z += angularDelta;
+                threeCube.rotation.y += angularDelta;
                 angularVelocityZ = angularDelta / dt;
             }
             lastPinch = pinchCenterOrNull;
@@ -453,7 +502,7 @@
 
         // Inertial spin after release
         if (!dragActive && threeCube && Math.abs(angularVelocityZ) > 1e-4) {
-            threeCube.rotation.z += angularVelocityZ * dt;
+            threeCube.rotation.y += angularVelocityZ * dt;
             // Exponential damping
             const damping = Math.exp(-3.2 * dt); // tweak friction
             angularVelocityZ *= damping;
