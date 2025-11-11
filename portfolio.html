@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Jake Downs | Creative Generalist</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script type="text/javascript">
+      let userHasClicked = false;
+    // Clicking or hovering a video mutes all videos, then unmutes just the nearest (by DOM ancestor) video to the event target
+    function muteAllVideosExcept(target) {
+      if(!userHasClicked){
+        return;
+      }
+      // return;
+      const videos = document.querySelectorAll('video');
+      videos.forEach((vid) => {
+        vid.muted = true;
+      });
+      if (target) {
+        target.muted = false;
+        target.play();
+      }
+    }
+
+    // Find closest video ancestor (including target if it's a video)
+    function findClosestVideo(element) {
+      return element.closest ? element.closest('video') : null;
+    }
+
+    // Event handler for click or hover
+    function handleVideoFocus(event) {
+      const focusedVideo = findClosestVideo(event.target);
+      if (focusedVideo) {
+        muteAllVideosExcept(focusedVideo);
+      }
+    }
+
+    // Add listeners to all videos (on page load and on dynamic insertion)
+    function setVideoListeners() {
+      const videos = document.querySelectorAll('video');
+      videos.forEach((vid) => {
+        vid.addEventListener('mouseenter', handleVideoFocus, false);
+        vid.addEventListener('click', handleVideoFocus, false);
+        // Optional: as user moves mouse over details, e.g. controls, keep track of video focus
+        vid.addEventListener('mousemove', handleVideoFocus, false);
+      });
+
+    // Set userHasClicked = true on any click/tap
+    function setUserHasClickedTrue() {
+      userHasClicked = true;
+    }
+    window.addEventListener('mousedown', setUserHasClickedTrue, { once: true });
+    window.addEventListener('touchstart', setUserHasClickedTrue, { once: true });
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", setVideoListeners);
+    } else {
+      setVideoListeners();
+    }
+    // If videos are added dynamically, you may want to rerun setVideoListeners()
+    // Optionally, use a MutationObserver for dynamic content
+    </script>
+
+    <style>
+    footer {
+      width: 100vw;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      box-sizing: border-box;
+    }
+    footer a {
+      display: block;
+      width: 100%;
+      text-align: center;
+      /* word-break: break-word;
+      white-space: pre-line; */
+    }
+    /* @media (min-width: 640px) { */
+      footer {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 30;
+        background-color: black;
+        box-shadow: 0 -20px 20px 0 black;
+      }
+      body {
+        padding-bottom: 10rem;
+      }
+    /* } */
+    </style>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-QJL8TTXHJR"></script>
+    <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-QJL8TTXHJR');
+    </script>
+  </head>
+  <body class="bg-neutral-950 text-white min-h-screen flex flex-col">
+    <header class="py-8 px-4">
+      <h1 class="text-4xl md:text-6xl font-extrabold tracking-tight text-center mb-2">jake downs</h1>
+      <h2 class="text-xl md:text-2xl font-semibold tracking-wide text-center text-teal-300 mb-1">creative generalist</h2>
+      <p class="text-center text-base md:text-lg text-gray-400">using digital tools to bring dreams to reality.</p>
+    </header>
+    <main class="flex-1 px-4 max-w-7xl mx-auto w-full">
+      <section class="mb-10 max-w-2xl mx-auto">
+        <p class="text-lg md:text-xl text-center text-gray-300 leading-relaxed">
+          <!-- since 2005, I've been bringing awesome ideas to life. From FlashMX to Blender, from WordPress to CodeIgniter. PHP, MySQL, JavaScript, Angular, React, Vue, ComfyUI, Midjourney, Veo, Sora—you name it, I've probably experimented with how to make art with it. I love the intersection of tech and therapeutic usages. I aim to join a team working to enable the democratization of creative expression. If you think my curiosity and experimental nature might be a good fit, please reach out. -->
+          <!-- <br/> -->
+          <a
+            href="https://linkedin.com/in/jakedowns"
+            target="_blank"
+            class="mt-4 inline-block bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-8 rounded-full shadow-lg text-center transition-colors duration-200"
+            style="text-decoration: none;"
+          >
+            Let's connect!
+          </a>
+        </p>
+      </section>
+
+      <!-- Portfolio -->
+      <section>
+        <h3 class="text-2xl font-bold mb-6 text-center text-white">Portfolio</h3>
+        <div 
+          class="
+            flex flex-wrap gap-6 justify-center
+            sm:justify-start
+          "
+        >
+          <!-- <div class="bg-neutral-900 rounded-xl shadow-lg p-6 flex flex-col flex-1 min-w-[260px] max-w-sm basis-64 hover:scale-105 transition-transform">
+            <h4 class="text-lg font-semibold mb-2 text-teal-200">FlashMX Interactive Art</h4>
+            <p class="text-gray-300 flex-1 mb-4">Early works exploring generative animation and interaction in ActionScript 2.</p>
+            <span class="block text-xs text-gray-500">2005 - 2008</span>
+          </div>
+          <div class="bg-neutral-900 rounded-xl shadow-lg p-6 flex flex-col flex-1 min-w-[260px] max-w-sm basis-64 hover:scale-105 transition-transform">
+            <h4 class="text-lg font-semibold mb-2 text-teal-200">Web Dev: WP &amp; CodeIgniter</h4>
+            <p class="text-gray-300 flex-1 mb-4">Custom theming, plugins, and applications for artists, businesses, and nonprofits.</p>
+            <span class="block text-xs text-gray-500">2008 - 2016</span>
+          </div>
+          <div class="bg-neutral-900 rounded-xl shadow-lg p-6 flex flex-col flex-1 min-w-[260px] max-w-sm basis-64 hover:scale-105 transition-transform">
+            <h4 class="text-lg font-semibold mb-2 text-teal-200">Immersive 3D/AI</h4>
+            <p class="text-gray-300 flex-1 mb-4">Using Blender, Three.js, Midjourney, Veo, and Sora to experiment at the intersection of generative art, interactivity, and AI.</p>
+            <span class="block text-xs text-gray-500">2020 - present</span>
+          </div>
+          <div class="bg-neutral-900 rounded-xl shadow-lg p-6 flex flex-col flex-1 min-w-[260px] max-w-sm basis-64 hover:scale-105 transition-transform">
+            <h4 class="text-lg font-semibold mb-2 text-teal-200">Creative Therapy Tech</h4>
+            <p class="text-gray-300 flex-1 mb-4">Exploring how digital art & creative tools can be used for wellbeing and community expression.</p>
+            <span class="block text-xs text-gray-500">Ongoing</span>
+          </div> -->
+
+          <div class="bg-neutral-900 rounded-xl shadow-lg p-6 flex flex-col flex-1 min-w-[260px] max-w-sm basis-64 hover:scale-105 transition-transform">
+            <h4 class="text-lg font-semibold mb-2 text-teal-200">Rapping Illustration</h4>
+            <video 
+              class="w-full rounded-md border border-neutral-800 mb-3"
+              src="https://va.media.tumblr.com/tumblr_t4dkemQQdH1qa2fsk.mp4"
+              controls
+              autoplay
+              muted
+              loop
+              playsinline
+              poster=""
+              style="background: #111;"
+            ></video>
+            <p class="text-gray-300 flex-1 mb-4">ai experiment using veo 3</p>
+            <span class="block text-xs text-gray-500">Oct 2025</span>
+          </div>
+
+          <div class="bg-neutral-900 rounded-xl shadow-lg p-6 flex flex-col flex-1 min-w-[260px] max-w-sm basis-64 hover:scale-105 transition-transform">
+            <h4 class="text-lg font-semibold mb-2 text-teal-200">Sora T-rex</h4>
+            <video 
+              class="w-full rounded-md border border-neutral-800 mb-3"
+              src="./portfolio-media/dino.mp4"
+              controls
+              autoplay
+              muted
+              loop
+              playsinline
+              poster=""
+              style="background: #111;"
+            ></video>
+            <p class="text-gray-300 flex-1 mb-4">ai experiment using sora</p>
+            <span class="block text-xs text-gray-500">Oct 2025</span>
+          </div>
+
+          <div class="bg-neutral-900 rounded-xl shadow-lg p-6 flex flex-col flex-1 min-w-[260px] max-w-sm basis-64 hover:scale-105 transition-transform">
+            <h4 class="text-lg font-semibold mb-2 text-teal-200">Turtle's Toast</h4>
+            <video 
+              class="w-full rounded-md border border-neutral-800 mb-3"
+              src="./portfolio-media/toast.mp4"
+              controls
+              autoplay
+              muted
+              loop
+              playsinline
+              poster=""
+              style="background: #111;"
+            ></video>
+            <p class="text-gray-300 flex-1 mb-4">ai experiment using sora</p>
+            <span class="block text-xs text-gray-500">Oct 2025</span>
+          </div>
+
+          <div class="bg-neutral-900 rounded-xl shadow-lg p-6 flex flex-col flex-1 min-w-[260px] max-w-sm basis-64 hover:scale-105 transition-transform">
+            <h4 class="text-lg font-semibold mb-2 text-teal-200">AI Walkcycle</h4>
+            <video 
+              class="w-full rounded-md border border-neutral-800 mb-3"
+              src="./portfolio-media/ai-001.mp4"
+              controls
+              autoplay
+              muted
+              loop
+              playsinline
+              poster=""
+              style="background: #111;"
+            ></video>
+            <p class="text-gray-300 flex-1 mb-4">ai experiment using animatediff and comfyui</p>
+            <span class="block text-xs text-gray-500">2024</span>
+          </div>
+
+          <div class="bg-neutral-900 rounded-xl shadow-lg p-6 flex flex-col flex-1 min-w-[260px] max-w-sm basis-64 hover:scale-105 transition-transform">
+            <h4 class="text-lg font-semibold mb-2 text-teal-200">Blender Holograms</h4>
+            <video 
+              class="w-full rounded-md border border-neutral-800 mb-3"
+              src="./portfolio-media/blender-001.mp4"
+              controls
+              autoplay
+              muted
+              loop
+              playsinline
+              poster=""
+              style="background: #111;"
+            ></video>
+            <p class="text-gray-300 flex-1 mb-4">holograms rendered in blender for Looking Glass Portrait</p>
+            <span class="block text-xs text-gray-500">2024</span>
+          </div>
+
+          <div class="bg-neutral-900 rounded-xl shadow-lg p-6 flex flex-col flex-1 min-w-[260px] max-w-sm basis-64 hover:scale-105 transition-transform">
+            <h4 class="text-lg font-semibold mb-2 text-teal-200">Blender Robot</h4>
+            <video 
+              class="w-full rounded-md border border-neutral-800 mb-3"
+              src="./portfolio-media/blender-002.mp4"
+              controls
+              autoplay
+              muted
+              loop
+              playsinline
+              poster=""
+              style="background: #111;"
+            ></video>
+            <p class="text-gray-300 flex-1 mb-4">Robot Modeled, Textured & Rigged</p>
+            <span class="block text-xs text-gray-500">2022</span>
+          </div>
+
+        </div>
+      </section>
+    </main>
+    <footer id="contact" class="py-8 px-4 mt-10 border-t border-neutral-800">
+      <div class="flex flex-col items-center justify-center gap-5 text-teal-200 text-lg font-medium
+                   w-full
+                  ">
+        <div class="flex flex-col gap-0 w-full max-w-2xl">
+          <div class="flex flex-col sm:flex-row gap-2 sm:gap-5 w-full justify-center items-center">
+            <a class="hover:underline" href="https://linkedin.com/in/jakedowns" target="_blank" rel="noopener noreferrer">linkedin.com/in/jakedowns</a>
+            <span class="hidden sm:inline text-teal-700">|</span>
+            <a class="hover:underline" href="https://x.com/jakedowns" target="_blank" rel="noopener noreferrer">x.com/jakedowns</a>
+            <span class="hidden sm:inline text-teal-700">|</span>
+            <a class="hover:underline" href="https://instagram.com/jakedownsthings" target="_blank" rel="noopener noreferrer">instagram.com/jakedownsthings</a>
+          </div>
+          <div class="flex flex-col sm:flex-row gap-2 sm:gap-5 w-full justify-center items-center mt-2 sm:mt-0">
+            <a class="hover:underline" href="https://github.com/jakedowns" target="_blank" rel="noopener noreferrer">github.com/jakedowns</a>
+            <span class="hidden sm:inline text-teal-700">|</span>
+            <a class="hover:underline" href="https://sora.chatgpt.com/profile/jakedowns" target="_blank" rel="noopener noreferrer">sora.chatgpt.com/profile/jakedowns</a>
+          </div>
+        </div>
+      </div>
+      <p class="text-center text-xs text-gray-600 mt-6">&copy; 2025 Jake Downs</p>
+    </footer>
+  </body>
+</html>
