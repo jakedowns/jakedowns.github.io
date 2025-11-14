@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Head</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    
+    <script>
+        // Scene setup
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+        
+        // Cornell Box setup
+        const boxSize = 10;
+        const boxGeometry = new THREE.BoxGeometry(boxSize, boxSize, boxSize);
+        
+        // Floor (white)
+        const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        const floor = new THREE.Mesh(boxGeometry, floorMaterial);
+        floor.position.y = -boxSize / 2;
+        floor.scale.set(1, 0.01, 1);
+        floor.receiveShadow = true;
+        scene.add(floor);
+        
+        // Ceiling (white)
+        const ceiling = new THREE.Mesh(boxGeometry, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+        ceiling.position.y = boxSize / 2;
+        ceiling.scale.set(1, 0.01, 1);
+        scene.add(ceiling);
+        
+        // Back wall (white)
+        const backWall = new THREE.Mesh(boxGeometry, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+        backWall.position.z = -boxSize / 2;
+        backWall.scale.set(1, 1, 0.01);
+        scene.add(backWall);
+        
+        // Left wall (red)
+        const leftWall = new THREE.Mesh(boxGeometry, new THREE.MeshStandardMaterial({ color: 0xff0000 }));
+        leftWall.position.x = -boxSize / 2;
+        leftWall.scale.set(0.01, 1, 1);
+        scene.add(leftWall);
+        
+        // Right wall (green)
+        const rightWall = new THREE.Mesh(boxGeometry, new THREE.MeshStandardMaterial({ color: 0x00ff00 }));
+        rightWall.position.x = boxSize / 2;
+        rightWall.scale.set(0.01, 1, 1);
+        scene.add(rightWall);
+        
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        // ambientLight.castShadow = true;
+        scene.add(ambientLight);
+        
+        const light1 = new THREE.PointLight(0xffffff, 0.9, 100);
+        light1.position.set(0, boxSize * 0.4, boxSize * 0.4);
+        light1.castShadow = true;
+        scene.add(light1);
+        
+        const light2 = new THREE.PointLight(0xffffff, 0.9, 100);
+        light2.position.set(0, boxSize * 0.4, -boxSize * 0.4);
+        light2.castShadow = true;
+        scene.add(light2);
+        
+        // Head setup
+        const headGroup = new THREE.Group();
+        scene.add(headGroup);
+        
+        // Head (sphere)
+        const headGeometry = new THREE.SphereGeometry(1, 32, 32);
+        const headMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xffdbac,
+            roughness: 0.7,
+            metalness: 0.1,
+            opacity: 0.5
+        });
+        const head = new THREE.Mesh(headGeometry, headMaterial);
+        head.castShadow = true;
+        head.receiveShadow = true;
+        headGroup.add(head);
+        
+        // Eyes group
+        const leftEyeGroup = new THREE.Group();
+        const rightEyeGroup = new THREE.Group();
+        headGroup.add(leftEyeGroup);
+        headGroup.add(rightEyeGroup);
+        
+        // Eye sockets
+        const eyeSocketGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+        const eyeSocketMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        
+        const leftEyeSocket = new THREE.Mesh(eyeSocketGeometry, eyeSocketMaterial);
+        leftEyeSocket.position.set(-0.3, 0.2, 0.85);
+        // leftEyeGroup.add(leftEyeSocket);
+        
+        const rightEyeSocket = new THREE.Mesh(eyeSocketGeometry, eyeSocketMaterial);
+        rightEyeSocket.position.set(0.3, 0.2, 0.85);
+        // rightEyeGroup.add(rightEyeSocket);
+        
+        // Eyeballs (white)
+        const eyeballGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+        const eyeballMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        
+        const leftEyeball = new THREE.Mesh(eyeballGeometry, eyeballMaterial);
+        leftEyeball.position.set(-0.3, 0.2, 0.85);
+        leftEyeGroup.add(leftEyeball);
+        
+        const rightEyeball = new THREE.Mesh(eyeballGeometry, eyeballMaterial);
+        rightEyeball.position.set(0.3, 0.2, 0.85);
+        rightEyeGroup.add(rightEyeball);
+        
+        // Pupils
+        const pupilGeometry = new THREE.SphereGeometry(0.085, 16, 16);
+        const pupilMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        
+        const leftPupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
+        leftPupil.position.set(0, 0, 0.2);
+        leftEyeball.add(leftPupil);
+        
+        const rightPupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
+        rightPupil.position.set(0, 0, 0.2);
+        rightEyeball.add(rightPupil);
+        
+        // Smile/O mouth using line renderer
+        const mouthMaterial = new THREE.LineBasicMaterial({ 
+            color: 0x000000, 
+            linewidth: 6
+        });
+        const mouthGeometry = new THREE.BufferGeometry();
+        const mouthLine = new THREE.Line(mouthGeometry, mouthMaterial);
+        mouthLine.position.set(0, -0.3, 1.5);
+        headGroup.add(mouthLine);
+        
+        // Create smile curve points (relative to mouth position)
+        function createSmilePoints() {
+            const points = [];
+            const segments = 32;
+            const width = 0.4;
+            const height = 0.15;
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const angle = Math.PI * t; // 0 to PI
+                const x = -width / 2 + width * t;
+                const y = -height * Math.sin(angle);
+                points.push(new THREE.Vector3(x, y, 0));
+            }
+            return points;
+        }
+        
+        // Create "o" shape curve points
+        function createOPoints() {
+            const points = [];
+            const segments = 32;
+            const radius = 0.15;
+            for (let i = 0; i <= segments; i++) {
+                const angle = (i / segments) * Math.PI * 2;
+                const x = Math.cos(angle) * radius;
+                const y = Math.sin(angle) * radius;
+                points.push(new THREE.Vector3(x, y, 0));
+            }
+            return points;
+        }
+        
+        const smilePoints = createSmilePoints();
+        const oPoints = createOPoints();
+        let mouthBlend = 0; // 0 = smile, 1 = "o"
+        
+        // Initialize mouth with smile
+        mouthGeometry.setFromPoints(smilePoints);
+        
+        // Position head in center
+        headGroup.position.set(0, 0, 0);
+        headGroup.scale.set(1.5, 1.5, 1.5);
+
+        // Create a fully transparent material for the plane
+        const transparentPlaneMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xffffff, 
+            transparent: true, 
+            opacity: 0.01
+        });
+        const hitTestPlane = new THREE.PlaneGeometry(8, 8);
+        const hitTestPlaneMesh = new THREE.Mesh(
+            hitTestPlane,
+            transparentPlaneMaterial
+        );
+        hitTestPlaneMesh.position.set(0, 0, 2);
+        scene.add(hitTestPlaneMesh);
+        
+        // Debug marker for cursor position
+        const debugMarkerGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+        const debugMarkerMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xff0000,
+            emissive: 0x330000
+        });
+        const debugMarker = new THREE.Mesh(debugMarkerGeometry, debugMarkerMaterial);
+        scene.add(debugMarker);
+        
+        // Debug line from head to target
+        const debugLineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, opacity: 1.0, transparent: true });
+        const debugLineGeometry = new THREE.BufferGeometry();
+        const debugLine = new THREE.Line(debugLineGeometry, debugLineMaterial);
+        debugLineMaterial.linewidth = 3;
+        scene.add(debugLine);
+        
+        // Wireframe toggle
+        let wireframeMode = false;
+        function toggleWireframe() {
+            wireframeMode = !wireframeMode;
+            scene.traverse((object) => {
+                if (object.isMesh && object.material) {
+                    if (Array.isArray(object.material)) {
+                        object.material.forEach(mat => {
+                            if (mat) mat.wireframe = wireframeMode;
+                        });
+                    } else {
+                        object.material.wireframe = wireframeMode;
+                    }
+                }
+            });
+        }
+        
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'w' || event.key === 'W') {
+                toggleWireframe();
+            }
+        });
+        
+        // Camera orbit setup
+        let cameraAngle = 0;
+        let cameraRadius = 8;
+        let cameraHeight = 2;
+        
+        // Mouse/pointer tracking
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetMouseX = 0;
+        let targetMouseY = 0;
+        
+        // Mobile orientation
+        let deviceOrientation = { beta: 0, gamma: 0 };
+        let isTouching = false;
+        let lastTouchTime = 0;
+        const touchTimeout = 500; // ms after touch ends before using orientation
+        
+        // Smoothing
+        let currentEyeLookX = 0;
+        let currentEyeLookY = 0;
+        let currentHeadTiltX = 0;
+        let currentHeadTiltY = 0;
+        
+        // Mouse/pointer event handlers
+        function updatePointerPosition(event) {
+            targetMouseX = (event.clientX / window.innerWidth) * 2 - 1;
+            targetMouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+            isTouching = true;
+            lastTouchTime = Date.now();
+        }
+        
+        window.addEventListener('mousemove', updatePointerPosition);
+        window.addEventListener('pointermove', updatePointerPosition);
+        window.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                updatePointerPosition(e.touches[0]);
+            }
+        });
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                updatePointerPosition(e.touches[0]);
+            }
+        });
+        window.addEventListener('touchend', () => {
+            isTouching = false;
+            lastTouchTime = Date.now();
+        });
+        
+        // Device orientation handler
+        if (window.DeviceOrientationEvent) {
+            window.addEventListener('deviceorientation', (event) => {
+                deviceOrientation.beta = event.beta || 0; // front-to-back tilt
+                deviceOrientation.gamma = event.gamma || 0; // left-to-right tilt
+            });
+        }
+        
+        // Update mouse position with smoothing
+        function updateMousePosition() {
+            const now = Date.now();
+            const useOrientation = !isTouching && (now - lastTouchTime > touchTimeout);
+            
+            if (useOrientation && window.DeviceOrientationEvent) {
+                // Normalize orientation to -1 to 1 range
+                targetMouseX = Math.max(-1, Math.min(1, deviceOrientation.gamma / 45));
+                targetMouseY = Math.max(-1, Math.min(1, (deviceOrientation.beta - 90) / 45));
+            }
+            
+            mouseX += (targetMouseX - mouseX) * 0.1;
+            mouseY += (targetMouseY - mouseY) * 0.1;
+        }
+        
+        // Raycasting to get 3D target position
+        function getTargetPosition() {
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2(mouseX, mouseY);
+            raycaster.setFromCamera(mouse, camera);
+            
+            const intersection = new THREE.Vector3();
+
+            const intersects = raycaster.intersectObject(hitTestPlaneMesh, false);
+            if (intersects.length > 0) {
+                intersection.copy(intersects[0].point);
+            }
+            
+            return intersection;
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            updateMousePosition();
+            
+            const targetPos = getTargetPosition();
+            
+            // Update debug marker and line
+            debugMarker.position.copy(targetPos);
+            const headWorldPos = new THREE.Vector3();
+            headGroup.getWorldPosition(headWorldPos);
+            debugLineGeometry.setFromPoints([headWorldPos, targetPos]);
+            
+            // Check if cursor is hovering over the head
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2(mouseX, mouseY);
+            raycaster.setFromCamera(mouse, camera);
+            const headIntersects = raycaster.intersectObject(head, false);
+            const isHovering = headIntersects.length > 0;
+            
+            // Update mouth blend (smooth transition)
+            const targetBlend = isHovering ? 1 : 0;
+            mouthBlend += (targetBlend - mouthBlend) * 0.1;
+            
+            // Interpolate between smile and "o" shapes
+            const blendedPoints = [];
+            const pointCount = 33; // Same as segments + 1
+            for (let i = 0; i < pointCount; i++) {
+                const t = i / (pointCount - 1);
+                const smileIdx = Math.min(Math.floor(t * (smilePoints.length - 1)), smilePoints.length - 1);
+                const oIdx = Math.min(Math.floor(t * (oPoints.length - 1)), oPoints.length - 1);
+                const smilePoint = smilePoints[smileIdx];
+                const oPoint = oPoints[oIdx];
+                const blended = new THREE.Vector3().lerpVectors(smilePoint, oPoint, mouthBlend);
+                blendedPoints.push(blended);
+            }
+            mouthGeometry.setFromPoints(blendedPoints);
+            
+            // Calculate eye look direction (relative to head)
+            
+            const leftEyeWorldPos = new THREE.Vector3();
+            leftEyeball.getWorldPosition(leftEyeWorldPos);
+            
+            const rightEyeWorldPos = new THREE.Vector3();
+            rightEyeball.getWorldPosition(rightEyeWorldPos);
+            
+            // Direction from eyes to target
+            const leftEyeDir = new THREE.Vector3()
+                .subVectors(targetPos, leftEyeWorldPos)
+                .normalize();
+            
+            const rightEyeDir = new THREE.Vector3()
+                .subVectors(targetPos, rightEyeWorldPos)
+                .normalize();
+            
+            // Limit eye movement (max look angle)
+            const maxEyeAngle = 0.3;
+            const leftEyeLocal = new THREE.Vector3(0, 0, 1)
+                .add(leftEyeDir.multiplyScalar(maxEyeAngle))
+                .normalize();
+            
+            const rightEyeLocal = new THREE.Vector3(0, 0, 1)
+                .add(rightEyeDir.multiplyScalar(maxEyeAngle))
+                .normalize();
+            
+            // Update eye rotation
+            leftEyeball.lookAt(targetPos);//.position.clone().add(leftEyeLocal));
+            rightEyeball.lookAt(targetPos);//rightEyeball.position.clone().add(rightEyeLocal));
+            
+            // Head tilt (slight rotation towards target)
+            const headTiltX = -mouseY * 0.3; // pitch (negated to fix direction)
+            const headTiltY = mouseX * 0.3; // yaw
+            
+            currentHeadTiltX += (headTiltX - currentHeadTiltX) * 0.1;
+            currentHeadTiltY += (headTiltY - currentHeadTiltY) * 0.1;
+            
+            headGroup.rotation.x = currentHeadTiltX;
+            headGroup.rotation.y = currentHeadTiltY;
+            
+            // Camera orbit (countering head rotation)
+            cameraAngle += mouseX * 0.01;
+            
+            // Limit camera orbit influence to +/- 30 degrees
+            const maxOrbitInfluence = Math.PI / 6; // 30 degrees in radians
+            const orbitInfluenceX = Math.max(-maxOrbitInfluence, Math.min(maxOrbitInfluence, currentHeadTiltY * 2));
+            const orbitInfluenceY = Math.max(-maxOrbitInfluence, Math.min(maxOrbitInfluence, currentHeadTiltX * 1.5));
+            
+            const baseAngle = cameraAngle;
+            const finalAngle = baseAngle - orbitInfluenceX;
+            // Calculate camera offsets
+            let cameraOffsetX = Math.sin(finalAngle) * cameraRadius;
+            let cameraOffsetZ = Math.cos(finalAngle) * cameraRadius;
+
+            // Cap the camera's x and z offsets to prevent extreme side views
+            const maxCameraOffsetX = cameraRadius * 0.7; // adjust 0.7 to control the side limit
+            const maxCameraOffsetZ = cameraRadius * 1.0; // you may wish to limit z less than x
+
+            cameraOffsetX = Math.max(-maxCameraOffsetX, Math.min(maxCameraOffsetX, cameraOffsetX));
+            cameraOffsetZ = Math.max(-maxCameraOffsetZ, Math.min(maxCameraOffsetZ, cameraOffsetZ));
+            
+            camera.position.x = cameraOffsetX;
+            camera.position.z = cameraOffsetZ;
+            
+            // Calculate desired Y position
+            const desiredY = cameraHeight - orbitInfluenceY;
+            
+            // Calculate horizontal distance from head to camera
+            const horizontalDist = Math.sqrt(cameraOffsetX * cameraOffsetX + cameraOffsetZ * cameraOffsetZ);
+            
+            // Cap vertical angle to +/- 30 degrees absolute
+            const maxVerticalAngle = Math.PI / 6; // 30 degrees
+            const headY = headGroup.position.y;
+            const maxY = headY + horizontalDist * Math.tan(maxVerticalAngle);
+            const minY = headY - horizontalDist * Math.tan(maxVerticalAngle);
+            
+            camera.position.y = Math.max(minY, Math.min(maxY, desiredY));
+            
+            // camera.lookAt(headGroup.position);
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Start animation
+        camera.position.set(0, cameraHeight, cameraRadius);
+        camera.lookAt(0, 0, 0);
+        animate();
+    </script>
+</body>
+</html>
+
