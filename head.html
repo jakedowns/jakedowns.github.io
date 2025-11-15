@@ -80,13 +80,13 @@
         // ambientLight.castShadow = true;
         scene.add(ambientLight);
         
-        const light1 = new THREE.PointLight(0xffffff, 0.9, 100);
-        light1.position.set(0, boxSize * 0.4, boxSize * 0.4);
+        const light1 = new THREE.PointLight(0xff00ff, 2, 200);
+        light1.position.set(0, 3, 3);
         light1.castShadow = true;
         scene.add(light1);
         
-        const light2 = new THREE.PointLight(0xffffff, 0.9, 100);
-        light2.position.set(0, boxSize * 0.4, -boxSize * 0.4);
+        const light2 = new THREE.PointLight(0xffff00, 2, 200);
+        light2.position.set(0, 3, 3);
         light2.castShadow = true;
         scene.add(light2);
         
@@ -152,11 +152,11 @@
         // Smile/O mouth using line renderer
         const mouthMaterial = new THREE.LineBasicMaterial({ 
             color: 0x000000, 
-            linewidth: 6
+            linewidth: 10
         });
         const mouthGeometry = new THREE.BufferGeometry();
         const mouthLine = new THREE.Line(mouthGeometry, mouthMaterial);
-        mouthLine.position.set(0, -0.3, 1.5);
+        mouthLine.position.set(0, -0.3, 1.1);
         headGroup.add(mouthLine);
         
         // Create smile curve points (relative to mouth position)
@@ -204,7 +204,7 @@
         const transparentPlaneMaterial = new THREE.MeshBasicMaterial({ 
             color: 0xffffff, 
             transparent: true, 
-            opacity: 0.01
+            opacity: 0
         });
         const hitTestPlane = new THREE.PlaneGeometry(8, 8);
         const hitTestPlaneMesh = new THREE.Mesh(
