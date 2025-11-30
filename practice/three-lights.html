@@ -23,11 +23,20 @@
             color: white;
             z-index: 100;
         }
+        #zoomDebug {
+            position: absolute;
+            top: 40px;
+            left: 10px;
+            color: white;
+            z-index: 100;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
     <div id="container"></div>
     <div id="info">Three Lights - Torus Scene</div>
+    <div id="zoomDebug">Zoom: 0.00</div>
 
     <script type="importmap">
     {
@@ -55,10 +64,12 @@
         document.getElementById('container').appendChild(renderer.domElement);
 
         // Camera positioned inside the torus (slightly offset for orbit controls to work)
-        camera.position.set(0, 0, 0.1);
+        camera.position.set(0, 0, 7.0);
+        camera.fov = 113;
+        camera.updateProjectionMatrix();
 
-        // Create torus with double-sided material
-        const torusGeometry = new THREE.TorusGeometry(5, 2, 16, 100);
+        // Create torus with double-sided material (more subdivisions)
+        const torusGeometry = new THREE.TorusGeometry(5, 2, 64, 200);
         const torusMaterial = new THREE.MeshStandardMaterial({
             color: 0xffffff,
             side: THREE.DoubleSide,
@@ -66,6 +77,7 @@
             roughness: 0.7
         });
         const torus = new THREE.Mesh(torusGeometry, torusMaterial);
+        torus.rotation.x = Math.PI / 2; // Rotate 90 degrees on X axis
         scene.add(torus);
 
         // Create wireframe clone for debug view
@@ -77,14 +89,20 @@
                 side: THREE.DoubleSide
             })
         );
+        wireframeTorus.rotation.x = Math.PI / 2; // Rotate 90 degrees on X axis
         wireframeTorus.visible = false;
         scene.add(wireframeTorus);
+
+        // Create axes helper for debug view
+        const axesHelper = new THREE.AxesHelper(10);
+        axesHelper.visible = false;
+        scene.add(axesHelper);
 
         // Create 3 lights in triangular formation
         const lightColors = [0xff0000, 0x00ff00, 0x0000ff]; // Red, Green, Blue
         const lights = [];
         const lightHelpers = [];
-        const lightRadius = 3; // Distance from origin
+        const lightRadius = 5; // Distance from origin (center of outer ring of torus)
         const lightIntensity = 2;
 
         for (let i = 0; i < 3; i++) {
@@ -132,6 +150,9 @@
         // Animation parameters
         let rotationSpeed = 1;
         let lightBrightness = 1;
+        let cameraFov = 75;
+        let metalness = 0.3;
+        let roughness = 0.7;
         let bloomStrength = 1.5;
         let bloomRadius = 0.4;
         let bloomThreshold = 0.85;
@@ -147,8 +168,22 @@
                 light.intensity = value * 2;
             });
         });
+        gui.add({ cameraFov: cameraFov }, 'cameraFov', 10, 120).onChange((value) => {
+            cameraFov = value;
+            camera.fov = value;
+            camera.updateProjectionMatrix();
+        });
+        gui.add({ metalness: metalness }, 'metalness', 0, 1).onChange((value) => {
+            metalness = value;
+            torusMaterial.metalness = value;
+        });
+        gui.add({ roughness: roughness }, 'roughness', 0, 1).onChange((value) => {
+            roughness = value;
+            torusMaterial.roughness = value;
+        });
         gui.add({ debugView: false }, 'debugView').onChange((value) => {
             wireframeTorus.visible = value;
+            axesHelper.visible = value;
         });
         
         const bloomFolder = gui.addFolder('Bloom');
@@ -180,6 +215,11 @@
             });
 
             controls.update();
+            
+            // Update zoom debug display
+            const zoomLevel = camera.position.distanceTo(controls.target);
+            document.getElementById('zoomDebug').textContent = `Zoom: ${zoomLevel.toFixed(2)}`;
+            
             composer.render();
         }
 
