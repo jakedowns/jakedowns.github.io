@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three Lights - Torus Scene</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: Arial, sans-serif;
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="info">Three Lights - Torus Scene</div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { GUI } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/lil-gui.module.min.js';
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.getElementById('container').appendChild(renderer.domElement);
+
+        // Camera positioned inside the torus (slightly offset for orbit controls to work)
+        camera.position.set(0, 0, 0.1);
+
+        // Create torus with double-sided material
+        const torusGeometry = new THREE.TorusGeometry(5, 2, 16, 100);
+        const torusMaterial = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            side: THREE.DoubleSide,
+            metalness: 0.3,
+            roughness: 0.7
+        });
+        const torus = new THREE.Mesh(torusGeometry, torusMaterial);
+        scene.add(torus);
+
+        // Create wireframe clone for debug view
+        const wireframeTorus = new THREE.Mesh(
+            torusGeometry,
+            new THREE.MeshBasicMaterial({
+                color: 0x00ffff,
+                wireframe: true,
+                side: THREE.DoubleSide
+            })
+        );
+        wireframeTorus.visible = false;
+        scene.add(wireframeTorus);
+
+        // Create 3 lights in triangular formation
+        const lightColors = [0xff0000, 0x00ff00, 0x0000ff]; // Red, Green, Blue
+        const lights = [];
+        const lightHelpers = [];
+        const lightRadius = 3; // Distance from origin
+        const lightIntensity = 2;
+
+        for (let i = 0; i < 3; i++) {
+            const angle = (i * Math.PI * 2) / 3; // 120 degrees apart
+            const x = Math.cos(angle) * lightRadius;
+            const z = Math.sin(angle) * lightRadius;
+            
+            const light = new THREE.PointLight(lightColors[i], lightIntensity, 10);
+            light.position.set(x, 0, z);
+            scene.add(light);
+            lights.push(light);
+
+            // Add visible light helpers (small spheres)
+            const helperGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+            const helperMaterial = new THREE.MeshBasicMaterial({ color: lightColors[i] });
+            const helper = new THREE.Mesh(helperGeometry, helperMaterial);
+            light.add(helper);
+            lightHelpers.push(helper);
+        }
+
+        // Add ambient light for better visibility
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.2);
+        scene.add(ambientLight);
+
+        // Post-processing setup
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            1.5, // strength
+            0.4, // radius
+            0.85 // threshold
+        );
+        composer.addPass(bloomPass);
+
+        // Controls
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        // Animation parameters
+        let rotationSpeed = 1;
+        let lightBrightness = 1;
+        let bloomStrength = 1.5;
+        let bloomRadius = 0.4;
+        let bloomThreshold = 0.85;
+
+        // GUI Controls
+        const gui = new GUI();
+        gui.add({ rotationSpeed: rotationSpeed }, 'rotationSpeed', 0, 5).onChange((value) => {
+            rotationSpeed = value;
+        });
+        gui.add({ lightBrightness: lightBrightness }, 'lightBrightness', 0, 5).onChange((value) => {
+            lightBrightness = value;
+            lights.forEach(light => {
+                light.intensity = value * 2;
+            });
+        });
+        gui.add({ debugView: false }, 'debugView').onChange((value) => {
+            wireframeTorus.visible = value;
+        });
+        
+        const bloomFolder = gui.addFolder('Bloom');
+        bloomFolder.add({ strength: bloomStrength }, 'strength', 0, 5).onChange((value) => {
+            bloomStrength = value;
+            bloomPass.strength = value;
+        });
+        bloomFolder.add({ radius: bloomRadius }, 'radius', 0, 2).onChange((value) => {
+            bloomRadius = value;
+            bloomPass.radius = value;
+        });
+        bloomFolder.add({ threshold: bloomThreshold }, 'threshold', 0, 2).onChange((value) => {
+            bloomThreshold = value;
+            bloomPass.threshold = value;
+        });
+
+        // Animation loop
+        let time = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.01 * rotationSpeed;
+
+            // Rotate lights around origin
+            lights.forEach((light, i) => {
+                const angle = (i * Math.PI * 2) / 3 + time;
+                const x = Math.cos(angle) * lightRadius;
+                const z = Math.sin(angle) * lightRadius;
+                light.position.set(x, 0, z);
+            });
+
+            controls.update();
+            composer.render();
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
+
