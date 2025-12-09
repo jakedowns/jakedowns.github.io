@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>p5 Fourier Series</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+  <!-- <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400&display=swap" rel="stylesheet"> -->
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+      background-color: black;
+    }
+  </style>
+</head>
+<body>
+<script>
+// text SVG outline traced, simplified as a sequence of points.
+let points = [];
+let fourier = [];
+let fourierSorted = []; // Sorted by amplitude for visual limiting
+let time = 0;
+let path = []; // Array of {x, y, age}
+let font;
+let maxEpicycles = 100; // Limit number of epicycles to draw
+let speedSlider;
+let textInput;
+let pathPointAccumulator = 0; // new: for fractional path step emission control
+let basePathResolution = 2;  // new: updated in updateText with points.length
+let canonicalSampleIdx = 0; // which outline point we tracked up to in path emission
+let lastPhaseN = 0; // previous integer sample step (per-cycle)
+
+function preload() {
+  // Load a font for textToPoints - using a reliable CDN font file (.ttf format)
+  font = loadFont('https://webapps1.chicago.gov/cdn/uswds-2.2.1/fonts/roboto-mono/roboto-mono-v5-latin-500.ttf');
+}
+
+function setup() {
+  createCanvas(windowWidth, 400);
+  background(0);
+
+  // Wait for font to load
+  if (!font) {
+    console.error('Font not loaded');
+    return;
+  }
+
+  // Create text input
+  textInput = createInput('hello');
+  textInput.position(220, height - 30);
+  textInput.style('width', '200px');
+  textInput.style('padding', '5px');
+  textInput.input(updateText);
+
+  // Create speed control slider
+  speedSlider = createSlider(0, 100, 50);
+  speedSlider.position(10, height - 30);
+  speedSlider.style('width', '200px');
+  speedSlider.input(updateText); // Recalc resolution on slider move
+
+  // Initial text processing
+  updateText();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, 400);
+  
+  // Update UI element positions
+  if (textInput) {
+    textInput.position(220, height - 30);
+  }
+  if (speedSlider) {
+    speedSlider.position(10, height - 30);
+  }
+}
+
+function updateText() {
+  if (!font) return;
+  let textToDraw = textInput.value() || 'hello';
+  // Dynamically adapt point count/sampleFactor based on speed
+  let s = speedSlider.value() / 100;
+  let sampleFactor = map(s, 0, 1, 0.03, 0.2); // min-max sampleFactor
+  let fontSize = 192;
+  textFont(font);
+  textSize(fontSize);
+  points = font.textToPoints(textToDraw, 50, 250, fontSize, {
+    sampleFactor,
+    simplifyThreshold: 0
+  });
+  if (points.length === 0) return;
+  // Center
+  let sumx = 0, sumy = 0;
+  for (let pt of points) { sumx += pt.x; sumy += pt.y; }
+  let cx = sumx / points.length, cy = sumy / points.length;
+  for (let pt of points) { pt.x -= cx; pt.y -= cy; }
+  // Complex form
+  let complexPoints = [];
+  for (let pt of points) { complexPoints.push(new Complex(pt.x, pt.y)); }
+  // Fourier, sorted for visual
+  fourier = dft(complexPoints);
+  fourierSorted = [...fourier].sort((a, b) => b.amp - a.amp);
+  fourier = reorganizeFourier(fourier);
+  // Reset animation
+  time = 0;
+  path = [];
+}
+
+function draw() {
+  background(0);
+
+  // Draw original points for debugging (before translate)
+  push();
+  translate(width/2, height/2 + 30);
+  stroke(255, 0, 0, 50); // 50% opacity
+  strokeWeight(3);
+  for (let i = 0; i < points.length; i++) {
+    point(points[i].x, points[i].y);
+    // Draw line connecting points in order
+    if (i > 0) {
+      stroke(255, 0, 0, 50); // 50% opacity
+      line(points[i-1].x, points[i-1].y, points[i].x, points[i].y);
+    }
+  }
+  pop();
+
+  translate(width/2, height/2 + 30);
+
+  let vx = 0;
+  let vy = 0;
+
+  // Reconstruct the path using ALL Fourier coefficients
+  let x = 0, y = 0;
+  for (let i = 0; i < fourier.length; i++) {
+    let freq = fourier[i].freq;
+    let radius = fourier[i].amp;
+    let phase = fourier[i].phase;
+    let angle = freq * time + phase;
+    x += radius * cos(angle);
+    y += radius * sin(angle);
+  }
+  
+  // Draw epicycles visually (limited to top ones for clarity)
+  let xVis = 0, yVis = 0;
+  let numToDraw = min(maxEpicycles, fourierSorted.length);
+  for (let i = 0; i < numToDraw; i++) {
+    let prevx = xVis;
+    let prevy = yVis;
+
+    let freq = fourierSorted[i].freq;
+    let radius = fourierSorted[i].amp;
+    let phase = fourierSorted[i].phase;
+    let angle = freq * time + phase;
+    xVis += radius * cos(angle);
+    yVis += radius * sin(angle);
+
+    stroke(255, 215, 0, 50); // Gold circles, low opacity
+    noFill();
+    ellipse(prevx, prevy, radius*2);
+    stroke(255, 215, 0, 40); // Gold lines
+    line(prevx, prevy, xVis, yVis);
+  }
+
+  // === Adaptive path point placement: always proportional, never jagged ===
+  pathPointAccumulator += speedSlider.value() / 100; // Use speedSlider value directly
+  while (pathPointAccumulator >= 1) {
+    // Add a new path point (max basePathResolution points in path)
+    path.unshift({x: x, y: y, age: 0});
+    if (path.length > points.length * 2) path.pop();
+    pathPointAccumulator--;
+  }
+
+  // Age all path points and remove old ones
+  for (let i = 0; i < path.length; i++) {
+    path[i].age++;
+  }
+  // Keep path for one full cycle plus some fade
+  let maxPathAge = points.length * 2;
+  path = path.filter(p => p.age < maxPathAge);
+
+  // Canonical blue path sampling (no jaggies at any speed!)
+  // Only add a blue path sample when time passes a new integer index (N samples per cycle)
+  let n = fourier.length > 0 ? points.length : 0;
+  let speed = speedSlider.value() / 100;
+  let dt = (TWO_PI / n) * speed;
+  let prevTime = time;
+  time += dt;
+
+  // Emit all canonical blue path points skipped in this dt
+  let prevPhaseN = Math.floor((prevTime / TWO_PI) * n);
+  let currPhaseN = Math.floor((time / TWO_PI) * n);
+  if (n > 0) {
+    let steps = (currPhaseN - prevPhaseN + n) % n;
+    for (let k = 1; k <= steps; k++) {
+      // For each skipped canonical, compute its phase
+      let idx = (prevPhaseN + k) % n;
+      let phase = (idx / n) * TWO_PI;
+      let xx = 0, yy = 0;
+      for (let i = 0; i < fourier.length; i++) {
+        let freq = fourier[i].freq;
+        let radius = fourier[i].amp;
+        let ph = fourier[i].phase;
+        let ang = freq * phase + ph;
+        xx += radius * cos(ang);
+        yy += radius * sin(ang);
+      }
+      path.unshift({x: xx, y: yy, age: 0});
+      if (path.length > 2 * n) path.pop();
+    }
+  }
+  // On wrap-around, reset canonicalSampleIdx
+  if (time >= TWO_PI) {
+    time = time % TWO_PI;
+    canonicalSampleIdx = 0;
+  }
+
+  // Draw the path with fading (draw as line segments for proper fading)
+  if (path.length > 1) {
+    strokeWeight(2);
+    for (let i = 0; i < path.length - 1; i++) {
+      let alpha1 = map(path[i].age, 0, maxPathAge, 255, 0);
+      let alpha2 = map(path[i + 1].age, 0, maxPathAge, 255, 0);
+      let alpha = (alpha1 + alpha2) / 2; // Average alpha for the segment
+      stroke(255, 105, 180, alpha); // hot pink
+      line(path[i].x, path[i].y, path[i + 1].x, path[i + 1].y);
+    }
+  }
+
+  // Apply speed control (0-100% mapped to 0-1)
+  // Time should go from 0 to TWO_PI to complete one full cycle
+  // let speed = speedSlider.value() / 100; // This line is now redundant as speed is calculated above
+  // let n = fourier.length > 0 ? points.length : 0; // This line is now redundant as n is calculated above
+  // let dt = (TWO_PI / n) * speed; // This line is now redundant as dt is calculated above
+  // time += dt; // This line is now redundant as time is calculated above
+  
+  // Wrap time to keep it in [0, TWO_PI) range for continuous looping
+  // if (time >= TWO_PI) { // This line is now redundant as time is calculated above
+  //   time = time % TWO_PI;
+  // }
+
+  // Debug text overlay
+  push();
+  resetMatrix();
+  fill(255); // White text
+  noStroke();
+  textAlign(LEFT, TOP);
+  textSize(12);
+  text(`Points: ${points.length}`, 10, 10);
+  text(`Fourier coeffs: ${fourier.length}`, 10, 25);
+  text(`Time: ${time.toFixed(2)}`, 10, 40);
+  text(`Path length: ${path.length}`, 10, 55);
+  text(`Font loaded: ${font ? 'Yes' : 'No'}`, 10, 70);
+  if (fourier.length > 0) {
+    text(`Top freq: ${fourier[0].freq}, amp: ${fourier[0].amp.toFixed(2)}`, 10, 85);
+  }
+  text(`Speed: ${speedSlider.value()}%`, 10, 100);
+  pop();
+}
+
+// DFT for a list of complex values
+function dft(x) {
+  let X = [];
+  let N = x.length;
+  for (let k = 0; k < N; k++) {
+    let sum = new Complex(0, 0);
+    for (let n = 0; n < N; n++) {
+      let phi = (TWO_PI * k * n) / N;
+      // e^(-i*phi) = cos(phi) - i*sin(phi)
+      let c = new Complex(Math.cos(phi), -Math.sin(phi));
+      sum = sum.add(x[n].mult(c));
+    }
+    sum = sum.div(N);
+    let freq = k <= N/2 ? k : k - N; // Frequencies: 0, 1, 2, ..., N/2, -N/2+1, ..., -1
+    let amp = sum.mag();
+    let phase = sum.phase();
+    X.push({re: sum.re, im: sum.im, freq, amp, phase});
+  }
+  return X;
+}
+
+// Reorganize Fourier coefficients: DC (freq 0) first, then pairs of +/- frequencies
+function reorganizeFourier(fourier) {
+  let N = fourier.length;
+  let reorganized = [];
+  
+  // Find DC component (freq 0)
+  let dcIndex = fourier.findIndex(f => f.freq === 0);
+  if (dcIndex >= 0) {
+    reorganized.push(fourier[dcIndex]);
+  }
+  
+  // Add pairs: +1/-1, +2/-2, etc.
+  for (let k = 1; k <= Math.floor(N/2); k++) {
+    let posIndex = fourier.findIndex(f => f.freq === k);
+    let negIndex = fourier.findIndex(f => f.freq === -k);
+    if (posIndex >= 0) reorganized.push(fourier[posIndex]);
+    if (negIndex >= 0) reorganized.push(fourier[negIndex]);
+  }
+  
+  return reorganized;
+}
+
+// Minimal complex number implementation
+class Complex {
+  constructor(re, im) {
+    this.re = re;
+    this.im = im;
+  }
+  add(c) {
+    return new Complex(this.re + c.re, this.im + c.im);
+  }
+  mult(c) {
+    return new Complex(this.re * c.re - this.im * c.im,
+                       this.re * c.im + this.im * c.re);
+  }
+  div(n) {
+    return new Complex(this.re / n, this.im / n);
+  }
+  mag() {
+    return Math.sqrt(this.re * this.re + this.im * this.im);
+  }
+  phase() {
+    return Math.atan2(this.im, this.re);
+  }
+  static exp(theta) {
+    // e^(i*theta)
+    return new Complex(Math.cos(theta), Math.sin(theta));
+  }
+}
+</script>
+<div style="position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); text-align: center; font-family: Arial, sans-serif; font-size: 12px; color: white;">
+  made by <a href="https://x.com/jakedowns" target="_blank" style="color: #1DA1F2; text-decoration: none;">jake</a> and <a href="https://cursor.sh" target="_blank" style="color: #1DA1F2; text-decoration: none;">Auto</a>
+</div>
+</body>
+</html>
