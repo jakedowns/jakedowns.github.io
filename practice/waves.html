@@ -225,17 +225,23 @@
                         };
                     };
 
-                    //interact(document.body)
-                    //    .draggable({
-                    //        onmove: pointerEventHandler,
-                    //        onend: pointerEventHandler
-                    //    });
-
                     window.addEventListener('mousemove', pointerEventHandler);
 
                     //app.el.addEventListener('mouseup', app.handleMouseUp);
-                    //window.addEventListener('touchstart', app.handleTouchStart);
-                    //window.addEventListener('touchend', app.handleTouchEnd);
+                    window.addEventListener('touchstart', app.handleTouchStart);
+                    window.addEventListener('touchend', app.handleTouchEnd);
+                    // Add touchmove support for live wave interactions
+                    window.addEventListener('touchmove', function(e) {
+                        if (e.touches && e.touches.length > 0) {
+                            var touch = e.touches[0];
+                            app.cursors = {
+                                mouse: {
+                                    x: touch.pageX || touch.clientX,
+                                    y: touch.pageY || touch.clientY
+                                }
+                            };
+                        }
+                    });
                     //window.addEventListener('keydown', app.handleKeyDown);
                     //window.addEventListener('keyup', app.handleKeyUp);
 
