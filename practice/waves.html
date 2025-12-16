@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Waves Practice</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #fff;
+        }
+        body {
+            background: #000 !important;
+        }
+        #myCanvas {
+            background: #000 !important;
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tinycolor/1.6.0/tinycolor.min.js" integrity="sha512-AvCfbOQzCVi2ctVWF4m89jLwTn/zVPJuS7rhiKyY3zqyCdbPqtvNa0I628GJqPytbowfFjkAGOpq85E5kQc40Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fpsmeter/0.3.1/fpsmeter.min.js" integrity="sha512-60sOFuolHKjKWm4IcltFrnIvq2slKdPjz1i9WzZMzLDaYSUuwhvxg4Ku/eBnFejYJBuHce9hSvcngBSK9pEV1g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+
+    function LegacyWaves(){
+        var fps = 120; //60;
+        var now;
+        var then = Date.now();
+        var interval = 1000/fps;
+        var delta;
+
+        var app = {
+        init: function () {
+
+            window.waves = app;
+            // app.waterRipple = waterRipple || false;
+
+
+            if(app.options.show_fps){
+                app.fps_meter = new FPSMeter(null, {left: 'auto', right: '5px'});
+            }
+            app.el = document.getElementById('myCanvas');
+
+            // re-allocate (allow context switching between 2d and 3d)
+            var newCanvas = app.el.cloneNode(false);
+            app.el.parentNode.replaceChild(newCanvas, app.el);
+            app.el = newCanvas;
+
+            app.ctx = app.el.getContext('2d');
+
+            app.bindEvents();
+            app.respondCanvas();
+            app.initWaves();
+            app.main();
+
+            // auto-cycle
+            //setInterval(function(){
+            //    app.newLayer();
+            //}, 30000);
+
+            //return this;
+        },
+        options: {
+            fadeBuffer: true,
+            fadeBufferFader: 0,
+            keepBuffer: true,
+            showBounds: 0,
+
+            wavesPaused: false,
+            wavesKaleidoscopeMode: false,
+            waveKModeSegmentDeg: 0,
+            wavesStriped: false,
+
+            show_fps: false,
+            // frame drop tracker
+            fps_arr: [],
+            fps_avg: 0,
+            fps_thresh_min_avg: 50,
+            fps_frames_below_min_avg: 0,
+            fps_frames_below_min_avg_thresh: 10,
+        },
+        activateKMode: function () {
+            var doBeActive = true;
+            var maxSegments = 10;
+            app.waveKModeSegments = doBeActive ? Math.round(Math.random() * maxSegments) + 1 : 0;
+            app.waveKModeSegmentDeg = 360 / app.waveKModeSegments;
+            //console.log(app.waveKModeSegments, app.waveKModeSegmentDeg);
+            return doBeActive;
+        },
+        main: function () {
+            if(app.destroyed){
+            return;
+            }
+
+            window.requestAnimationFrame(app.main);
+
+            // cap FPS?
+            // now = Date.now();
+            // delta = now - then;
+            // if (delta > interval) {
+            app.flush();
+            // }
+        },
+        handleKeyUp: function (e) {
+            // save text buffer
+            //localStorage.setItem('abstractor', document.getElementById('helloi').innerHTML);
+
+            switch(e.keyCode){
+            // F
+            case 70:
+                app.options.show_fps = !app.options.show_fps;
+                if(!app.fps_meter && app.options.show_fps){
+                app.fps_meter = new FPSMeter(null, {left: 'auto', right: '5px'});
+                }
+                if(!app.options.show_fps && app.fps_meter){
+                app.fps_meter.destroy();
+                app.fps_meter = null;
+                }
+                break;
+            // K
+            case 75:
+                app.options.keepBuffer = !app.options.keepBuffer;
+                break;
+            }
+
+            // enter
+            if (e.keyCode == 13) {
+            if (app.waitingForDoubleReturn) {
+                app.waitingForDoubleReturn = false;
+                app.handleMouseDown();
+                app.textBufferNewPage();
+            } else {
+                app.waitingForDoubleReturn = true;
+            }
+
+            if(app.dblReturnTimer){
+                clearTimeout(app.dblReturnTimer);
+            }
+            app.dblReturnTimer = setTimeout(function () {
+                app.waitingForDoubleReturn = false;
+            }, 1000);
+            }
+
+            // space
+            if (e.keyCode == 32) {
+            app.options.wavesPaused = !app.options.wavesPaused;
+            }
+
+            // `
+            if (e.keyCode === 192) {
+            app.waveKModeDebug = !app.waveKModeDebug;
+            //console.log('app.waveKModeDebug', app.waveKModeDebug);
+            }
+        },
+        bindEvents: function () {
+            window.addEventListener('resize', app.respondCanvas);
+
+            // Store reference to dblclick handler for removal
+            app.dblclickHandler = function () {
+                app.handleMouseDown();
+            };
+
+            window.addEventListener('dblclick', app.dblclickHandler);
+            window.addEventListener('keyup', app.handleKeyUp.bind(app));
+
+            var pointerEventHandler = function (e) {
+            //console.log(e);
+            if (e.type == 'dragend') {
+                app.cursors.mouse.down = false;
+            }
+            app.cursors = {
+                mouse: {
+                x: e.pageX || e.clientX,
+                y: e.pageY || e.clientY
+                }
+            };
+            };
+
+            //interact(document.body)
+            //    .draggable({
+            //        onmove: pointerEventHandler,
+            //        onend: pointerEventHandler
+            //    });
+
+            //app.el.addEventListener('mouseup', app.handleMouseUp);
+            //window.addEventListener('touchstart', app.handleTouchStart);
+            //window.addEventListener('touchend', app.handleTouchEnd);
+            //window.addEventListener('keydown', app.handleKeyDown);
+            //window.addEventListener('keyup', app.handleKeyUp);
+
+
+            // disable right click
+            // app.el.oncontextmenu = function (e) {
+            //     if (e && e.preventDefault) e.preventDefault();
+            //     return false;
+            // };
+        },
+        destroy: function() {
+            //console.log('legacy waves destroying', app.destroyed);
+            app.destroyed = true;
+
+            window.removeEventListener('resize', app.respondCanvas);
+            window.removeEventListener('keyup', app.handleKeyUp.bind(app));
+            if (app.dblclickHandler) {
+                window.removeEventListener('dblclick', app.dblclickHandler);
+            }
+
+            var noticeEl = document.getElementById('notice');
+            if (noticeEl) noticeEl.remove();
+
+            if(app.fps_meter){
+            app.fps_meter.destroy();
+            app.fps_meter = null;
+            }
+        },
+        unbindEvents: function(){
+
+        },
+        textBufferNewPage: function () {
+            //console.log('new page requested!');
+        },
+        respondCanvas: function () {
+            // clear hiD cache
+            app.HiDimensions = null;
+
+            var di = app.getHiDpiDimensions();
+            app.el.setAttribute('width', di.x);
+            app.el.setAttribute('height', di.y);
+            //app.el.style.width = window.innerWidth;
+            //app.el.style.height = window.innerHeight;
+            app.el.width = di.x;
+            app.el.height = di.y;
+
+            //app.initWaves();
+
+            app.wW = di.x; //window.innerWidth;
+            app.wH = di.y; //window.innerHeight;
+
+            // cache common division
+            app.wW_q = app.wW * 0.25;
+            app.wW_h = app.wW * 0.5;
+            app.wW_tq = app.wW * 0.75;
+            app.wH_q = app.wH * 0.25;
+            app.wH_h = app.wH * 0.5;
+            app.wH_tq = app.wH * 0.75;
+            app.wLS = app.wW > app.wH ? app.wW : app.wH;
+
+            app._pi_180 = Math.PI / 180;
+            app._180_pi = 180 / Math.PI;
+            app.PI_h = Math.PI * 0.5;
+
+        },
+        handleMouseDown: function () {
+            //document.getElementById('notice').style.display = 'none';
+            //if (app.options.keepBuffer) {
+            app.waves = [];
+            app.initWaves();
+            //document.body.style.background = document.body.style.background == 'black' ?  'white' : 'black';
+            //}
+            //app.options.keepBuffer = !app.options.keepBuffer;
+            //app.clearBufferFadeOut();
+            app.clearBuffer();
+            app.options.fadeBufferFader = app.getRandFaderAmount();
+        },
+        newLayer: function () {
+            app.waves = [];
+            app.initWaves();
+        },
+        getRandFaderAmount: function () {
+            return Math.round(Math.random()) ? 0.0001 : parseFloat(((Math.random() * 0.045) + 0.001).toFixed(1));
+
+        },
+        getHiDpiDimensions: function () {
+            if (app.HiDimensions) return app.HiDimensions;
+
+            var ratio = app.deviceRatio = window.getPixelRatio(app.ctx);
+            //ratio = 1; // temp quick fix for slow retina display perf.
+
+            app.HiDimensions = {
+            x: Math.round(app.el.offsetWidth * ratio),
+            y: Math.round(app.el.offsetHeight * ratio)
+            };
+
+            return app.HiDimensions;
+        },
+        flush: function () {
+            app.cycle = app.cycle || 1;
+            app.cycle++;
+
+            if (!app.options.keepBuffer) {
+            app.clearBuffer();
+            }
+
+            app.fadeBuffer();
+
+            //if(app.cycle < 5000){
+            //if(!app.fadingOut){
+            if (!app.options.wavesPaused) {
+            app.renderWaves();
+            }
+            //}
+            //}else if(app.cycle == 5001){
+            //    app.waterRipple.waterRipple(app.ctx.getImageData(0,0,app.wW,app.wH));
+            //    app.el.style.display = 'none'
+            //}
+
+            if (app.options.showBounds) {
+            app.renderBounds();
+            }
+        },
+        clearBuffer: function () {
+            var di = app.getHiDpiDimensions();
+            app.ctx.fillStyle = 'black'; // 'white';
+            app.ctx.globalCompositeOperation = 'destination-out';
+            //console.log('clearing buffer', window.innerWidth, window.innerHeight, di.x, di.y);
+            app.ctx.fillRect(0, 0, di.x, di.y);
+        },
+        clearBufferFadeOut: function () {
+            app.fadingOut = true;
+            for (var i = 100; i > 0; i--) {
+            setTimeout(function (i) {
+                app.options.fadingOutAlpha = 0.6;
+                if (i == 100) {
+                app.fadingOut = false;
+                }
+            }, 6 * i, i);
+            }
+        },
+        fadeBuffer: function () {
+            return; // @TODO: revisit this
+            var di = app.getHiDpiDimensions();
+            var alpha = app.fadingOut ? app.options.fadingOutAlpha : app.options.fadeBufferFader;
+            alpha = alpha || 0;
+            alpha = parseFloat(alpha.toFixed(2));
+            //console.log(alpha, app.fadingOut, app.options.fadingOutAlpha);
+            app.ctx.fillStyle = tinycolor('#000000').setAlpha(alpha).toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+            app.ctx.globalCompositeOperation = 'destination-out';
+            app.ctx.fillRect(0, 0, di.x, di.y);
+        },
+        waves: [],
+        initWaves: function () {
+
+
+            
+
+            app.waves = [];
+
+            app.options.fadeBufferFader = 0; //app.getRandFaderAmount();
+            app.options.wavesIndividualDrawModesActive = 1; //Math.round(Math.random());
+            app.options.wavesKaleidoscopeMode = app.activateKMode();
+            app.options.wavesStriped = false;// Math.round(Math.random());
+            app.options.wavesDarkTails = app.options.wavesStriped ? false : Math.round(Math.random());
+            app.options.wavesForceHotspot = Math.round(Math.random());
+
+            app.options.fps_thresh_min_avg = 50;
+            
+
+            // select group draw mode
+            app.waveDrawMode = app.getRandomDrawMode();
+
+            app.wavesAreCosmic = Math.round(Math.random());
+
+            if(app.wavesAreCosmic){
+            app.wavesCosmicColors = ['white','orange','purple','indigo','black'];
+            var doSpin = Math.round(Math.random());
+            if(doSpin){
+                // spin em
+                var randSpin = (Math.random() * 360);
+                for(var i=0; i < app.wavesCosmicColors.length; i++){
+                app.wavesCosmicColors[i] = tinycolor(app.wavesCosmicColors[i]).spin(randSpin).toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+                }
+            }
+            }
+
+            app.wavesDoSpiral = Math.round(Math.random());
+            app.wavesReflect = Math.round(Math.random() * 3); // 0 = F, 1 = h, 2 = v, 3 = h + v, 4 = reflect 7 times
+
+            // disable mode 2 & 3 on mobile & tablet until perf concerns addressed
+            // if (app.isLowPowerMode) app.wavesReflect = Math.round(Math.random());
+
+            app.wavesColorsDoSpin = false; //Math.round(Math.random()); // @todo: precalc spin values and cache?
+            app.wavesColorsDoSpin = Math.round(Math.random());
+
+            //var waves = ['red','green','blue','cyan','magenta','yellow']; //, 'red','green','blue','cyan','magenta','yellow'];
+            app.waveColorSchemes = ['analogous', 'monochromatic', 'splitcomplement', 'triad', 'tetrad'];
+            app.waveColorScheme = app.waveColorSchemes[Math.floor(Math.random() * app.waveColorSchemes.length)];
+
+            var slices = Math.round((Math.random() * 10));
+
+            //console.log(app.waveColorScheme, 'spin:', app.wavesColorsDoSpin, 'slices?', slices);
+
+            app.waveBaseColor = tinycolor(tinycolor.random());
+            app.waveBaseColors = app.waveBaseColor[app.waveColorScheme](6, slices);
+            //app.waveBaseColors = app.waveBaseColors.map(function(t) { return t.toName(); });
+            app.waveBaseColors = app.waveBaseColors.map(function (t) {
+            return t.toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+            });
+
+            var lengthIsEven = app.waveBaseColors.length % 2 === 0;
+
+            for (var i = 0; i < app.waveBaseColors.length; i++) {
+            var newWave = app.getNewWave(i);
+            app.waves.push(newWave);
+            app.waves[app.waves.length - 1].idx = app.waves.length - 1;
+            }
+        },
+        getNewWave: function (i) {
+            var newWave = app.wave.new(
+            app.waveBaseColors[i],
+            app.getRandX(),
+            app.getRandY(),
+            app.getRandX(),
+            app.getRandY(),
+            app.getRandSpin(),
+            app.getRandAlpha(),
+            app.getRandPhase()
+            );
+
+            newWave.c2 = typeof(newWave.c2) == 'undefined' ? app.getWaveSecondBaseColor() : newWave.c2;
+            newWave.drawMode = app.options.wavesIndividualDrawModesActive ? app.getRandomDrawMode() : app.waveDrawMode;
+
+            var c1HSV = tinycolor(newWave.c).toHsv();
+            var c2HSV = tinycolor(newWave.c2).toHsv();
+
+            //////////////////////
+            // enforce a min brightness
+
+            var minB = 0.75;
+
+            if (c1HSV.v < minB) {
+            c1HSV.v = minB;
+            newWave.c = tinycolor(c1HSV).toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+            }
+
+            if (c2HSV.v < minB) {
+            c2HSV.v = minB;
+            newWave.c = tinycolor(c2HSV).toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+            }
+
+            //////////////////////
+            // enforce a min sat
+
+            var minS = 0.75;
+
+            if (c1HSV.s < minS) {
+            c1HSV.s = minS;
+            newWave.c = tinycolor(c1HSV).toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+            }
+
+            if (c2HSV.s < minS) {
+            c2HSV.s = minS;
+            newWave.c = tinycolor(c2HSV).toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+            }
+
+            ///////////
+            // Stripe Mode
+
+            if (app.options.wavesStriped) {
+            var striped = i % 2 === 0;
+
+            if (!lengthIsEven) {
+                striped = !striped;
+            }
+
+            if (striped) {
+                newWave.c = 'black';
+                newWave.c2 = 'black';
+                newWave.drawMode = 'darken';
+            }
+            }
+
+            ///////////
+            // Force Dark Tails
+            //if (app.options.wavesDarkTails) {
+            //  newWave.c2 = 'black';
+            //  newWave.drawMode = 'darken';
+            //}
+
+            ///////////
+            // Force Hotspots
+            if (i === app.waveBaseColors.length) {
+            //if(app.options.wavesForceHotspot){
+            //newWave.c = 'white';
+            newWave.drawMode = 'lighten';
+            //}
+            }
+
+            ///////////
+            // Cache Spin Colors for wave
+            // (spinning colors in flush routine ate 5-20% of execution time)
+            if (app.wavesColorsDoSpin && !app.wavesAreCosmic) {
+            function ColorSpinService(wave) {
+                this.wave = wave;
+                this.spinColorCaches = {
+                c3: {
+                    idx: 0,
+                    colors: [wave.c]
+                },
+                c4: {
+                    idx: 0,
+                    colors: [wave.c2]
+                }
+                };
+
+                // generate extra pre-spun colors
+                if(wave.spin){
+                for(var i = 0; i < 359; i++){
+                    var lastColor = this.spinColorCaches.c3.colors[this.spinColorCaches.c3.colors.length-1];
+                    this.spinColorCaches.c3.colors.push(tinycolor(lastColor).spin(wave.spin).toRgbString()); // @TODO: cache toRgbStringValues for all alphaLevels
+
+                    lastColor = this.spinColorCaches.c4.colors[this.spinColorCaches.c4.colors.length-1];
+                    this.spinColorCaches.c4.colors.push(tinycolor(lastColor).spin(wave.spin).toRgbString()); // @TODO: cache toRgbStringValues for all alphaLevels
+                }
+                }
+            }
+
+            ColorSpinService.prototype = {
+                getNextSpinColor: function (colorPropKey) {
+                var cc = this.spinColorCaches[colorPropKey];
+                if (cc) {
+                    var currIdx = cc.idx;
+                    var nextIdx = currIdx + 1;
+                    if(nextIdx > cc.colors.length - 1){
+                    nextIdx = 0;
+                    }
+
+                    cc.idx = nextIdx;
+
+                    return tinycolor(cc.colors[nextIdx]);
+                } else {
+                    return tinycolor('yellow');
+                }
+                }
+            };
+
+            newWave.ColorSpinService = new ColorSpinService(newWave);
+
+            //console.log('new ColorSpinService!', newWave.ColorSpinService.spinColorCaches);
+            } else {
+            newWave.ColorSpinService = false;
+            }
+
+            //
+            //var e = app.waves.length % 2 === 0;
+            //wave.skipMe = if(app.wavesSkipEven);
+
+            // @TODO: need a 'toggle symmetry' hotkey
+            // @TODO: need explosions
+            // @TODO: need to use webgl shaders
+            // @TODO: need to organize these todos
+            // @TODO: need to add todo tracker view
+            // @TODO: need to add hot key to show controls (`);
+
+            return newWave;
+        },
+        getRandomDrawMode: function () {
+            // avail draw modes:
+            app.waveDrawModes = ['source-over', 'destination-over', 'lighter']; //'xor', 'darken'
+            return app.waveDrawModes[Math.ceil(Math.random() * app.waveDrawModes.length - 1)];
+        },
+        getWaveSecondBaseColor: function () {
+            return app.waveBaseColors[Math.floor(Math.random() * app.waveBaseColors.length)];
+        },
+        getRandSpin: function () {
+            //return 0;
+            return (Math.random() * 2) + 0.5;
+            //return (Math.random() * 1) + 0;
+            //return Math.round((Math.random() * 1) + 0.1);
+            //return Math.round((Math.random() * 0.75) + 0.1);
+            //return (Math.round((Math.round(Math.random() * 10) + 0)) + 0);
+            //return (Math.round((Math.round(Math.random() * 45) + 0)) + 0);
+            //return (Math.round((Math.round(Math.random() * 180) + 0)) + 0);
+        },
+        getRandAlpha: function () {
+            return (Math.random() * 0.33) + 0.01;
+        },
+        getRandomAmplitude: function () {
+            //return 100;
+            return (Math.random() * 1000) + 0.001;
+        },
+        getRandomWaveW: function () {
+            // freq
+            //return 1;
+            return (Math.random() * 0.05) + 0.0001;
+        },
+        getRandX: function () {
+            var di = app.getHiDpiDimensions();
+            return ((Math.random() * di.x) + di.y * .5); //0);// + (app.wW * .5);
+        },
+        getRandY: function () {
+            var di = app.getHiDpiDimensions();
+            return ((Math.random() * di.x) + di.y * .5); //0);// + (app.wH * .5);
+        },
+        getRandPhase: function () {
+            return (Math.random() * .01) + 0;
+        },
+        renderWaves: function () {
+            if(app.options.show_fps){
+            app.fps_meter.tickStart();
+            }
+            //app.checkNeedDropWavesForPerformanceBoost();
+            for (var i = 0; i < app.waves.length; i++) {
+            app.renderWave(app.waves[i]);
+            }
+
+            //app.renderGradientOverlay();
+            if(app.options.show_fps){
+            app.fps_meter.tick();
+            }
+        },
+        renderGradientOverlay: function () {
+            var grd = app.ctx.createRadialGradient(app.wW_h, app.wH_h, 0, app.wW_h, app.wH_h, app.wLS);
+            var alpha = 1;
+            grd.addColorStop(0, tinycolor('white').setAlpha(alpha).toRgbString()); // @TODO: cache toRgbStringValues for all alphaLevels
+            grd.addColorStop(0.027, tinycolor('#f57c25').setAlpha(alpha).toRgbString()); // @TODO: cache toRgbStringValues for all alphaLevels
+            grd.addColorStop(0.5, tinycolor('#1c0f54').setAlpha(alpha).toRgbString()); // @TODO: cache toRgbStringValues for all alphaLevels
+            app.ctx.fillStyle = grd;
+            app.ctx.globalCompositeOperation = 'overlay';
+            app.ctx.fillRect(0, 0, app.wW, app.wH);
+        },
+        checkNeedDropWavesForPerformanceBoost: function () {
+            if (app.waves.length < 2) return;
+
+            if (app.fps_meter.fps < app.options.fps_thresh_min_avg) {
+            app.options.fps_frames_below_min_avg++;
+            } else {
+            app.options.fps_frames_below_min_avg = 0;
+            }
+
+            //console.log('app.options.fps_frames_below_min_avg', app.options.fps_frames_below_min_avg);
+
+            if (app.options.fps_frames_below_min_avg > app.options.fps_frames_below_min_avg_thresh) {
+            if (app.waves.length) {
+                app.waves.pop();
+            }
+            }
+
+            //console.log('wave count', app.waves.length);
+        },
+        reflectPoint: function (p, p0, p1) {
+            var dx, dy, a, b, x, y;
+
+            // pythagoras theorem, bitch
+            // dx = p1.x - p0.x;
+            // dy = p1.y - p0.y;
+
+            // @todo: cache this calc
+            var midpointX = (p0.x + p1.x) * 0.5;
+            var midpointY = (p0.y + p0.y) * 0.5;
+
+            // DEBUG draw reflection line
+            // app.ctx.globalCompositeOperation = 'source-over';
+            // app.ctx.beginPath();
+            // app.ctx.moveTo(p0.x, p0.y);
+            // app.ctx.lineTo(p1.x, p1.y);
+            // app.ctx.strokeStyle = app.ctx.fillStyle;
+            // app.ctx.stroke();
+
+            // var midpointDX = Math.abs(midpointX - p.x);
+            // var midpointDY = Math.abs(midpointY - p.y);
+            var midpointDX = (midpointX - p.x);
+            var midpointDY = (midpointY - p.y);
+
+            var adj = 2; //0.5;
+            var d = adj * Math.sqrt((midpointDX * midpointDX) + (midpointDY * midpointDY));
+            var angleRad = Math.atan2(midpointDY, midpointDX);
+            var angleRadX = angleRad;
+            var angleRadY = angleRad;
+            //var angleDeg = angleRad * 180 / Math.PI;
+
+            x = p.x + d * Math.cos(angleRadX);
+            y = p.y + d * Math.sin(angleRadY);
+
+            // Prev Method (vert & horiz only)...
+            // a = (dx * dx - dy * dy) / (dx * dx + dy * dy); // x^2 - y^2 / x^2 + y^2
+            // b = 2 * dx * dy / (dx * dx + dy * dy); // 2 * dx * dy / (x^2 + y^2)
+            // x = Math.round(a * (p.x - p0.x) + b * (p.y - p0.y) + p0.x);
+            // y = Math.round(b * (p.x - p0.x) - a * (p.y - p0.y) + p0.y);
+
+            return {x: x, y: y};
+        },
+        rotatePointAroundPoint: function (p00, p0, p1, deg, debug) {
+            var x, y;
+
+            //var dx = p1.x - p0.x;
+            //var dy = p1.y - p0.y;
+
+            // or
+            var dx = p0.x - p1.x;
+            var dy = p0.y - p1.y;
+
+            // @todo: cache point angle
+            var baseAngleRad = Math.atan2(dy, dx);
+
+            // @todo: cache fixed calcs
+            var angleRad = (deg * app._pi_180); // _pi_180 or _180_pi
+
+            //angleRad = baseAngleRad + angleRad;
+
+            var c = Math.cos(angleRad);
+            var s = Math.sin(angleRad);
+
+            // METHOD 3
+            x = (c * (dx)) - (s * (dy)) + p1.x;
+            y = (s * (dx)) + (c * (dy)) + p1.y;
+
+            return {x: x, y: y};
+        },
+        renderWave: function (wave) {
+            // bail
+            // if (app.cycle > 500) return;
+
+            var di = app.getHiDpiDimensions();
+            var t = app.cycle; //(new Date()).getTime();
+
+            wave.a = typeof(wave.a) == 'undefined' ? app.getRandomAmplitude() : wave.a;
+            wave.w = typeof(wave.w) == 'undefined' ? app.getRandomWaveW() : wave.w;
+            wave.w2 = typeof(wave.w2) == 'undefined' ? app.getRandomWaveW() : wave.w2;
+            wave.w3 = typeof(wave.w3) == 'undefined' ? app.getRandomWaveW() : wave.w3;
+            wave.w4 = typeof(wave.w4) == 'undefined' ? app.getRandomWaveW() : wave.w4;
+            wave.w5 = typeof(wave.w5) == 'undefined' ? app.getRandomWaveW() : wave.w5;
+            wave.w6 = typeof(wave.w6) == 'undefined' ? app.getRandomWaveW() : wave.w6;
+            wave.w7 = typeof(wave.w7) == 'undefined' ? app.getRandomWaveW() : wave.w7;
+            wave.w8 = typeof(wave.w8) == 'undefined' ? app.getRandomWaveW() : wave.w8;
+
+            var sinoid1 = Math.sin(wave.w * t);
+            var sinoid2 = Math.sin(wave.w2 * t);
+            var sinoid3 = Math.sin(wave.w3 * (t + (t * wave.pS1)));
+            var sinoid4 = Math.sin(wave.w4 * t);
+            var sinoid5 = Math.sin(wave.w5 * t);
+            var sinoid6 = Math.sin(wave.w6 * t);
+            var sinoid7 = Math.sin(wave.w7 * t);
+            var sinoid8 = Math.sin(wave.w8 * t);
+
+            var scaleFactor1 = .52;
+            var scaleFactor2 = .52;
+
+            var startX = wave.startX || app.wW * .5 * app.deviceRatio;
+            var startY = wave.startY || app.wH * .5 * app.deviceRatio;
+
+            var mx, my;
+
+            // auto-moving origin
+            //startX = (startX * sinoid1) + (app.wW_h);
+            //startY = (startY * sinoid2) + (app.wH_h);
+            // mouse bound
+            if (app && app.cursors && app.cursors.mouse) {
+
+            mx = app.cursors.mouse.x * app.deviceRatio;
+            my = app.cursors.mouse.y * app.deviceRatio;
+
+            // direct
+            //startX = app.cursors.mouse.x;
+            //startY = app.cursors.mouse.y;
+
+            // w/ ease
+            var speed = 5;
+
+            var disX = mx - startX;
+            var disY = my - startY;
+            var mouseMoved = mx !== wave.prevX || my !== wave.prevY;
+
+            var disAvg = Math.abs((disX + disY) / 2);
+            if (!mouseMoved) {
+                wave.disStableCount = wave.disStableCount || 0;
+                wave.disStableCount++;
+            } else {
+                wave.disStableCount = 0;
+            }
+            wave.disAvg = disAvg;
+            wave.prevDisAvg = disAvg;
+            wave.prevX = mx;
+            wave.prevY = my;
+
+            startX += disX / speed;
+            startY += disY / speed;
+            } else {
+            mx = app.wW_h * app.deviceRatio;
+            my = app.wH_h * app.deviceRatio;
+            wave.disStableCount = 0;
+            wave.radius = 0;
+            }
+
+            // spiral around mouse if mouse hasn't moved in a while
+            if (app.wavesDoSpiral) {
+            var amp = wave.disStableCount;
+            //console.log(amp);
+            if (amp > 10) {
+                var gA = ((app.wW_h + app.wH_h)) * 0.5;//0.25;
+
+                if (typeof(wave.radius) == 'undefined') {
+                wave.radius = (amp * 100) / gA;
+                }
+
+                if (typeof(wave.polarity) == 'undefined') {
+                wave.polarity = Math.round(Math.random());
+                if (wave.polarity == 0) {
+                    wave.polarity = -1;
+                }
+                }
+
+                if (wave.polarity == 1 && wave.radius > gA) {
+                // reverse polarity
+                wave.polarity = -1;
+                }
+                else if (wave.polarity == -1 && wave.radius < .001) {
+                // reverse polarity
+                wave.polarity = 1;
+                }
+
+                if (typeof(wave.radiusScaler) == 'undefined') {
+                //wave.radiusScaler = (Math.random() * 0.01) + 0.00001;
+                wave.radiusScaler = 0.01;
+                if (Math.round(Math.random())) {
+                    wave.radiusScaler = (Math.random() * 0.001) + 0.0001;
+                }
+                if (Math.round(Math.random())) {
+                    wave.radiusScaler = (Math.random() * 0.01) + 0.001;
+                }
+                if (Math.round(Math.random())) {
+                    wave.radiusScaler = (Math.random() * 0.1) + 0.1;
+                }
+                //wave.radiusScaler = 0;
+                }
+
+                wave.radius += ((wave.radiusScaler * 0.5) * wave.polarity);
+
+                wave.angle = wave.angle || 0;
+                wave.angle += wave.polarity * (wave.angleInc || (Math.random() * 3.33) + 0.01);
+                if (wave.angle > 360) {
+                wave.angle = 0;
+                }
+
+                startX = startX + wave.radius * Math.cos(wave.angle * Math.PI / 180);
+                startY = startY + wave.radius * Math.sin(wave.angle * Math.PI / 180);
+            }
+            }
+
+            // save
+            wave.startX = startX || app.wW_h;
+            wave.startY = startY || app.wH_h;
+
+            var A = app.wW * scaleFactor2;
+            var A2 = app.wH * scaleFactor2;
+
+            var p1x = (A * sinoid1) + (app.wW * scaleFactor1);
+            var p1y = (A2 * sinoid2) + (app.wH * scaleFactor1);
+
+            var p2x = (wave.x * sinoid3) + (app.wW * scaleFactor1);
+            var p2y = (wave.y * sinoid4) + (app.wH * scaleFactor1);
+
+            var p3x = (wave.x2 * sinoid5) + (app.wW * scaleFactor1);
+            var p3y = (wave.y2 * sinoid6) + (app.wH * scaleFactor1);
+
+            var waveFluxAlpha = wave.alpha * sinoid7;
+            waveFluxAlpha = Math.abs(waveFluxAlpha);
+            if (waveFluxAlpha < 0) {
+            waveFluxAlpha = 0;
+            }
+            wave.fluxA = waveFluxAlpha;
+
+            var waveFluxAlpha2 = wave.alpha * sinoid8;
+            waveFluxAlpha2 = Math.abs(waveFluxAlpha2);
+            if (waveFluxAlpha2 < 0) {
+            waveFluxAlpha2 = 0;
+            }
+            wave.fluxA2 = waveFluxAlpha2;
+
+            wave.p00 = {x: wave.startX || 0, y: wave.startY || 0};
+            wave.p0 = wave.p00;
+            wave.p1 = {x: p1x, y: p1y};
+            wave.p2 = {x: p2x, y: p2y};
+            wave.p3 = {x: p3x, y: p3y};
+
+            if (!app.options.wavesKaleidoscopeMode) {
+            // Start Point
+            app.drawWaveLineSegment(wave);
+
+            // Y REFLECT
+            if (app.wavesReflect === 1 || app.wavesReflect == 2 || app.wavesReflect == 3) {
+                app.drawReflectedCurve(wave, {
+                rLA: {x: app.wW_h, y: -1},
+                rLB: {x: app.wW_h, y: 1}
+                });
+            }
+
+            // X REFLECT (disabled for now) //app.wavesReflect == 2 ||
+            if (app.wavesReflect == 3) {
+                app.drawReflectedCurve(wave, {
+                rLA: {x: -1, y: app.wH_h},
+                rLB: {x: 1, y: app.wH_h}
+                });
+            }
+
+            // Y&X REFLECT
+            if (app.wavesReflect == 3) {
+                app.drawReflectedCurve(wave, {
+                rLA: {x: app.wW_h, y: -1},
+                rLB: {x: app.wW_h, y: 1}
+                });
+            }
+            }
+
+            app.middleware.kaliedoscope(wave);
+
+
+            // @todo: spacebar = pause/play wave rendering (but keep buffer)
+
+            // crosshair
+            // cursor
+            //var alpha = app.cursors.mouse.down ? 1 : 0.01;
+            //app.ctx.fillStyle = tinycolor(wave.c).setAlpha(alpha).toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+            //app.ctx.globalCompositeOperation = 'darken';
+            //app.ctx.fillRect(mx, my, 3, 3);
+            //app.ctx.globalCompositeOperation = 'light';
+            //app.ctx.fillRect(mx, my, 3, 3);
+            //
+            //// connect dots // @todo smooth with momentum
+            //// @todo: combine path ops
+            //// @todo: reflect
+            //if(app.cursors.mouse.down){
+            //    if(wave.prevX && wave.prevY){
+            //        app.ctx.beginPath();
+            //        app.ctx.moveTo(wave.prevX, wave.prevY);
+            //        app.ctx.lineTo(mx, my);
+            //        app.ctx.strokeStyle = tinycolor(wave.c).setAlpha(1).toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+            //        app.ctx.stroke();
+            //        app.ctx.globalCompositeOperation = 'source-over';
+            //    }
+            //}
+
+        },
+        middleware: {
+            // @TODO: AHA MOMENT! IDE THAT ORGANIZES FILE BASED ON FREQ OF SEARCH TO KEEP CONTEXT!!!!
+            // ABSTRACTR
+            // GROW SOFTWARE BETTER
+            kaliedoscope: function (wave) {
+            if (app.options.wavesKaleidoscopeMode) {
+                app.drawWaveLineSegment(wave); // 0
+
+                var origin = {x: app.wW_h, y: app.wH_h};
+
+                for (var w = 0; w < app.waveKModeSegments; w++) {
+                wave.p0 = wave.p00; // reset
+                var debug = app.waveKModeDebug; // || w === N, etc...
+                app.drawRotatedCurve(wave, {center: origin, deg: (w + 1) * app.waveKModeSegmentDeg, debug: debug});
+                }
+            }
+            }
+        },
+        drawReflectedCurve: function (wave, opts) {
+            wave.p0 = app.reflectPoint(wave.p0, opts.rLA, opts.rLB);
+            wave.p1 = app.reflectPoint(wave.p1, opts.rLA, opts.rLB);
+            wave.p2 = app.reflectPoint(wave.p2, opts.rLA, opts.rLB);
+            wave.p3 = app.reflectPoint(wave.p3, opts.rLA, opts.rLB);
+            app.drawWaveLineSegment(wave);
+        },
+        drawRotatedCurve: function (wave, opts) {
+            wave.p0 = app.rotatePointAroundPoint(wave.p00, wave.p0, opts.center, opts.deg, opts.debug);
+            wave.p1 = app.rotatePointAroundPoint(wave.p00, wave.p1, opts.center, opts.deg);
+            wave.p2 = app.rotatePointAroundPoint(wave.p00, wave.p2, opts.center, opts.deg);
+            wave.p3 = app.rotatePointAroundPoint(wave.p00, wave.p3, opts.center, opts.deg);
+            app.drawWaveLineSegment(wave, opts);
+        },
+        drawWaveLineSegment: function (wave, opts) {
+
+            opts = opts || {};
+
+
+            ///////////////////////////////////////////////////////////
+            // debug print mode
+            ///////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////
+            if (opts.debug) {
+            app.ctx.globalCompositeOperation = 'source-over'; //wave.drawMode;
+            app.ctx.fillStyle = 'red'; // debugging color
+            app.ctx.fillRect(wave.p0.x, wave.p0.y, 4, 4);
+            // app.ctx.fillStyle = 'yellow';
+            // app.ctx.fillRect(wave.p1.x, wave.p1.y, 4, 4);
+            //// app.ctx.fillStyle = 'green';
+            // app.ctx.fillRect(wave.p2.x, wave.p2.y, 4, 4);
+            //// app.ctx.fillStyle = 'blue';
+            // app.ctx.fillRect(wave.p3.x, wave.p3.y, 4, 4);
+            //return;
+            }
+            ///////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////
+            ///////////////////////////////////////////////////////////
+
+            app.ctx.beginPath();
+            app.ctx.moveTo(wave.p0.x, wave.p0.y);
+            app.ctx.bezierCurveTo(
+            wave.p1.x,
+            wave.p1.y,
+            wave.p2.x,
+            wave.p2.y,
+            wave.p3.x,
+            wave.p3.y
+            );
+
+            wave.c3 = tinycolor(wave.c3 || wave.c); //'rgba(0,0,0,0.33)';
+            if (wave.ColorSpinService) wave.c3 = wave.ColorSpinService.getNextSpinColor('c3');
+            wave.c3 = wave.c3.setAlpha(wave.fluxA);
+            wave.c3 = wave.c3.toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+
+            wave.c4 = tinycolor(wave.c4 || wave.c2); //'rgba(0,0,0,0.33)';
+            if (wave.ColorSpinService) wave.c4 = wave.ColorSpinService.getNextSpinColor('c4');
+            wave.c4 = wave.c4.setAlpha(wave.fluxA2);
+            wave.c4 = wave.c4.toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+
+            if (typeof(wave.lineWidth) == "undefined") {
+            //wave.lineWidth = 1;
+            //wave.lineWidth = app.deviceRatio;
+            wave.lineWidth = 0.5;
+            //wave.lineWidth = Math.round(1 / app.deviceRatio);
+            //wave.lineWidth = ((Math.random() * 1.5) + 0.5) / window.getPixelRatio(app.ctx);
+            }
+
+            var waveStrGrdRadius = 0;
+            //waveStrGrdRadius = Math.round(Math.random() * 100) + 1;
+
+            wave.strGrd = app.ctx.createRadialGradient(
+            wave.p0.x,
+            wave.p0.y,
+            waveStrGrdRadius,
+            wave.p0.x,
+            wave.p0.y,
+            app.wW
+            );
+
+            // @todo: alter colorSelector to generate multi-step gradients at random, like this one:
+            // E.G. (cosmos)
+            if (app.wavesAreCosmic) {
+            var orangeRadMax = (Math.random() * 0.5) + 0.001; // 0.15
+            var orangeRad = (Math.random() * orangeRadMax) + 0.0001; // @todo: fluctuate with Sin v. rand
+
+            var purpleRadMax = (Math.random() * 0.25) + 0.15; // 0.33
+            var purpleRad = (Math.random() * purpleRadMax) + 0.15; // @todo: fluctuate with Sin v. rand
+            purpleRad = Math.min(1, purpleRad);
+
+            var indigoRadMax = (Math.random() * 0.45) + 0.25; // 0.5
+            var indigoRad = (Math.random() * indigoRadMax) + 0.25; // @todo: fluctuate with Sin v. rand
+            indigoRad = Math.min(1, indigoRad);
+
+            var blackRad = (Math.random() * 1) + 0.55; //0.9; //0.75;
+            blackRad = (Math.random() * blackRad) + 0.55; // @todo: fluctuate with Sin v. rand
+            blackRad = Math.min(1, blackRad);
+
+            var wCC = app.wavesCosmicColors;
+            wave.strGrd.addColorStop(0, tinycolor(wCC[0]).setAlpha(wave.fluxA).toRgbString()); // @TODO: cache toRgbStringValues for all alphaLevels
+            wave.strGrd.addColorStop(orangeRad, tinycolor(wCC[1]).setAlpha(wave.fluxA).toRgbString()); // @TODO: cache toRgbStringValues for all alphaLevels
+            wave.strGrd.addColorStop(purpleRad, tinycolor(wCC[2]).setAlpha(wave.fluxA2).toRgbString()); // @TODO: cache toRgbStringValues for all alphaLevels
+            wave.strGrd.addColorStop(indigoRad, tinycolor(wCC[3]).setAlpha(wave.fluxA2).toRgbString()); // @TODO: cache toRgbStringValues for all alphaLevels
+            wave.strGrd.addColorStop(blackRad, tinycolor(wCC[4]).setAlpha(wave.fluxA2).toRgbString()); // @TODO: cache toRgbStringValues for all alphaLevels
+            } else {
+            // basic 2-color mode
+            wave.strGrd.addColorStop(0, wave.c3);
+            wave.strGrd.addColorStop(1, wave.c4);
+            }
+
+
+            app.ctx.lineWidth = wave.lineWidth;
+            //app.ctx.fillStyle = wave.c2;
+            //app.ctx.fill();
+            // app.ctx.shadowColor = 'rgba(0,0,0,0.1)';
+            // app.ctx.shadowBlur = 1;
+            // app.ctx.shadowOffsetX = 0;
+            // app.ctx.shadowOffsetY = 10;
+
+            //app.ctx.strokeStyle = wave.c;
+            app.ctx.strokeStyle = wave.strGrd;
+
+            app.ctx.globalCompositeOperation = wave.drawMode;
+            app.ctx.stroke();
+
+            if (app.wavesAreCosmic) {
+            // NEW: when "cosmic" color scheme active,
+            // always add a lighten bit at wave origin:
+            app.ctx.globalCompositeOperation = 'lighter';
+            app.ctx.fillStyle = tinycolor('white').setAlpha(0.033).toRgbString(); // @TODO: cache toRgbStringValues for all alphaLevels
+            app.ctx.fillRect(wave.p0.x, wave.p0.y, 1, 1);
+            }
+        },
+        wave: {
+            new: function (c, x, y, x2, y2, spin, alpha, pS1) {
+            return {
+                p: 100,
+                c: c,
+                x: x,
+                y: y,
+                x2: x2,
+                y2: y2,
+                spin: spin,
+                alpha: alpha,
+                pS1: pS1
+            };
+            },
+        },
+        renderBounds: function () {
+            var di = app.getHiDpiDimensions();
+
+            app.ctx.fillStyle = 'green';
+            app.ctx.fillRect(0, 0, 10, 10);
+
+            app.ctx.fillStyle = 'blue';
+            app.ctx.fillRect(app.wW - 10, app.wH - 10, 10, 10);
+
+            //app.ctx.fillStyle = 'yellow';
+            //app.ctx.fillRect(0,0,10,10);
+
+            //app.ctx.fillStyle = 'red';
+            //app.ctx.fillRect(0,0,10,10);
+        }
+        };
+
+        //return app;
+        this.app = app;
+        return this;
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        window.waves = new LegacyWaves();
+        window.waves.app.init();
+    });
+
+    window.getPixelRatio = function(context) {
+    var backingStore = context.backingStorePixelRatio ||
+        context.webkitBackingStorePixelRatio ||
+        context.mozBackingStorePixelRatio ||
+        context.msBackingStorePixelRatio ||
+        context.oBackingStorePixelRatio ||
+        context.backingStorePixelRatio || 1;
+    return (window.devicePixelRatio || 1) / backingStore;
+    };
+
+    //http://jsfiddle.net/mTzsD/2/
+    function sqr(x) {
+        return x * x
+    }
+
+    function dist2(v, w) {
+        return sqr(v.x - w.x) + sqr(v.y - w.y)
+    }
+
+    function distToSegmentSquared(p, v, w) {
+        var l2 = dist2(v, w);
+        if (l2 == 0) return dist2(p, v);
+        var t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+        if (t < 0) return dist2(p, v);
+        if (t > 1) return dist2(p, w);
+        return dist2(p, {
+            x: v.x + t * (w.x - v.x),
+            y: v.y + t * (w.y - v.y)
+        });
+    }
+
+    // Return minimum distance between line segment vw and point p
+    function distToSegment(p, v, w) {
+        return Math.sqrt(distToSegmentSquared(p, v, w));
+    }
+    </script>
+</head>
+<body>
+    <canvas id="myCanvas"></canvas>
+</body>
+</html>
