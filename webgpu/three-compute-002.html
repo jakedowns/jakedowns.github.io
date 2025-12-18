@@ -88,74 +88,218 @@
         const bloomPass = new UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
             0.5, // strength
-            0.0, // radius
-            0.0  // threshold
+            0.2, // radius
+            0.5  // threshold
         );
         composer.addPass(bloomPass);
 
         // GUI setup
         const gui = new GUI();
+
+        // Grid parameters
+        let GRID_SIZE = 64;
+        let TOTAL_POINTS = GRID_SIZE * GRID_SIZE;
+
+        // Simulation parameters
+        const simParams = { gridSize: GRID_SIZE };
+        const simFolder = gui.addFolder('Simulation');
+        simFolder.add(simParams, 'gridSize', 16, 128, 8).name('Grid Size').onChange(value => {
+            GRID_SIZE = Math.floor(value);
+            initSimulation();
+        });
+        simFolder.open();
+
         const bloomFolder = gui.addFolder('Bloom');
         bloomFolder.add(bloomPass, 'strength', 0, 3).onChange(value => bloomPass.strength = Number(value));
         bloomFolder.add(bloomPass, 'radius', 0, 1).onChange(value => bloomPass.radius = Number(value));
         bloomFolder.add(bloomPass, 'threshold', 0, 1).onChange(value => bloomPass.threshold = Number(value));
         bloomFolder.close();
 
-        // Input controls
+        // Input controls (will be initialized after simulation)
+        let inputFolder;
+
+        
+
+        // Simulation variables (will be initialized in initSimulation)
+        let positions, velocities, origins, gpuCompute, positionTexture, velocityTexture;
+        let positionVariable, velocityVariable, uniformsPosition, uniformsVelocity;
+        let geometry, pointMaterial, points;
+
+        function initSimulation() {
+            // Recalculate total points
+            TOTAL_POINTS = GRID_SIZE * GRID_SIZE;
+
+            // Create initial positions and velocities
+            positions = new Float32Array(TOTAL_POINTS * 3);
+            velocities = new Float32Array(TOTAL_POINTS * 3);
+            origins = new Float32Array(TOTAL_POINTS * 3);
+
+            let index = 0;
+            // Dynamically compute spacing: keep points in [-S, S] x [-S, S], where S is proportional to viewport
+            // Choose a base area size (in world units) based on the smaller viewport dimension
+            // For square distribution, each step = area_size / grid_size
+            const minViewport = Math.min(window.innerWidth, window.innerHeight);
+            const baseAreaSize = minViewport / 80; // scaling divisor can be adjusted for zoom
+            const spacing = baseAreaSize / GRID_SIZE;
+
+            console.log('total points',TOTAL_POINTS)
+
+            for (let i = 0; i < GRID_SIZE; i++) {
+                for (let j = 0; j < GRID_SIZE; j++) {
+                    const x = (i / GRID_SIZE - 0.5) * GRID_SIZE * spacing;
+                    const y = (j / GRID_SIZE - 0.5) * GRID_SIZE * spacing;
+                    const z = 0;
+
+                    positions[index * 3] = x;
+                    positions[index * 3 + 1] = y;
+                    positions[index * 3 + 2] = z;
+
+                    origins[index * 3] = x;
+                    origins[index * 3 + 1] = y;
+                    origins[index * 3 + 2] = z;
+
+                    velocities[index * 3] = 0;
+                    velocities[index * 3 + 1] = 0;
+                    velocities[index * 3 + 2] = 0;
+
+                    index++;
+                }
+            }
+
+            // GPU Compute setup
+            gpuCompute = new GPUComputationRenderer(GRID_SIZE, GRID_SIZE, renderer);
+
+            if (!gpuCompute.init()) {
+                console.error('GPU computation not supported');
+            }
+
+            // Position texture
+            positionTexture = gpuCompute.createTexture();
+            velocityTexture = gpuCompute.createTexture();
+
+            fillTexture(positionTexture, positions);
+            fillTexture(velocityTexture, velocities);
+
+            // Compute shader for physics simulation
+            positionVariable = gpuCompute.addVariable('texturePosition', getPositionFragmentShader(), positionTexture);
+            velocityVariable = gpuCompute.addVariable('textureVel', getVelocityFragmentShader(), velocityTexture);
+
+            gpuCompute.setVariableDependencies(positionVariable, [positionVariable, velocityVariable]);
+            gpuCompute.setVariableDependencies(velocityVariable, [velocityVariable, positionVariable]);
+
+            uniformsPosition = positionVariable.material.uniforms;
+            uniformsVelocity = velocityVariable.material.uniforms;
+
+            uniformsPosition.textureVel = { value: null };
+            uniformsPosition.mousePos = { value: new THREE.Vector2() };
+            uniformsPosition.mouseInfluence = { value: 0.0 };
+            uniformsPosition.returnSpeed = { value: 0.05 };
+            uniformsPosition.originTexture = { value: createOriginTexture() };
+
+            uniformsVelocity.mousePos = { value: new THREE.Vector2() };
+            uniformsVelocity.mouseInfluence = { value: 0.0 };
+            uniformsVelocity.mousePressed = { value: 0.0 };
+            uniformsVelocity.mouseStrength = { value: 0.5 };
+            uniformsVelocity.inertia = { value: 0.98 };
+            uniformsVelocity.maxVelocity = { value: 5.0 };
+            uniformsVelocity.damping = { value: 0.93 };
+            uniformsVelocity.pressSign = { value: 1.0 }; // -1.0 means press repels; 1.0 means press attracts
+
+            const error = gpuCompute.init();
+            if (error !== null) {
+                console.error(error);
+            }
+
+            // Create UV coordinates for texture sampling
+            const uvs = new Float32Array(TOTAL_POINTS * 2);
+            for (let i = 0; i < GRID_SIZE; i++) {
+                for (let j = 0; j < GRID_SIZE; j++) {
+                    const idx = i * GRID_SIZE + j;
+                    uvs[idx * 2] = (j + 0.5) / GRID_SIZE; // x coordinate
+                    uvs[idx * 2 + 1] = (i + 0.5) / GRID_SIZE; // y coordinate
+                }
+            }
+
+            geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+            pointMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    texturePosition: { value: null },
+                    textureVel: { value: null },
+                    pointSize: { value: 10.0 }
+                },
+                vertexShader: `
+                    uniform sampler2D texturePosition;
+                    uniform sampler2D textureVel;
+                    uniform float pointSize;
+
+                    varying vec3 vColor;
+
+                    void main() {
+                        vec4 pos = texture2D(texturePosition, uv);
+                        vec4 vel = texture2D(textureVel, uv);
+
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos.xyz, 1.0);
+                        gl_PointSize = pointSize;
+
+                        float velMag = length(vel.xyz);
+
+                        // Color based on velocity: deep dark red-purple (0) to orange (high)
+                        // For medium velocity, mix to a middle color
+                        float normalizedVel = clamp(velMag / 5.0, 0.0, 1.0);
+
+                        if (normalizedVel < 0.5) {
+                            // Deeper, darker, more red-purple to middle color
+                            vec3 color1 = vec3(0.1, 0.00, 0.28); // deep, dark, red-purple
+                            vec3 color2 = vec3(0.5, 0.25, 0.25); // middle color
+                            vColor = mix(color1, color2, normalizedVel * 2.0);
+                        } else {
+                            // Middle color to orange
+                            vec3 color1 = vec3(0.5, 0.25, 0.25); // middle color
+                            vec3 color2 = vec3(1.0, 0.5, 0.0); // orange
+                            vColor = mix(color1, color2, (normalizedVel - 0.5) * 2.0);
+                        }
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vColor;
+
+                    void main() {
+                        // Circular point
+                        vec2 coord = gl_PointCoord - vec2(0.5);
+                        if (dot(coord, coord) > 0.25) discard;
+
+                        gl_FragColor = vec4(vColor * 3.0, 1.0);
+                    }
+                `,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                depthTest: false // Disable depth test for dynamic points
+            });
+
+            // Remove existing points if they exist
+            if (points) {
+                scene.remove(points);
+            }
+
+            points = new THREE.Points(geometry, pointMaterial);
+            points.renderOrder = 1; // Render dynamic points after static points
+            scene.add(points);
+        }
+
+        // Initialize the simulation
+        initSimulation();
+
+        // Input controls (now that simulation is initialized)
         const inputParams = { pressToRepel: false };
-        const inputFolder = gui.addFolder('Input');
+        inputFolder = gui.addFolder('Input');
         inputFolder.add(inputParams, 'pressToRepel').name('Press to repel').onChange(v => {
             uniformsVelocity.pressSign.value = v ? -1.0 : 1.0;
         });
         inputFolder.open();
-
-        // Grid parameters
-        const GRID_SIZE = 64;
-        const TOTAL_POINTS = GRID_SIZE * GRID_SIZE;
-        
-        // Create initial positions and velocities
-        const positions = new Float32Array(TOTAL_POINTS * 3);
-        const velocities = new Float32Array(TOTAL_POINTS * 3);
-        const origins = new Float32Array(TOTAL_POINTS * 3);
-        
-        let index = 0;
-        const spacing = 0.3;
-        
-        for (let i = 0; i < GRID_SIZE; i++) {
-            for (let j = 0; j < GRID_SIZE; j++) {
-                const x = (i / GRID_SIZE - 0.5) * GRID_SIZE * spacing;
-                const y = (j / GRID_SIZE - 0.5) * GRID_SIZE * spacing;
-                const z = 0;
-                
-                positions[index * 3] = x;
-                positions[index * 3 + 1] = y;
-                positions[index * 3 + 2] = z;
-                
-                origins[index * 3] = x;
-                origins[index * 3 + 1] = y;
-                origins[index * 3 + 2] = z;
-                
-                velocities[index * 3] = 0;
-                velocities[index * 3 + 1] = 0;
-                velocities[index * 3 + 2] = 0;
-                
-                index++;
-            }
-        }
-
-        // GPU Compute setup
-        const gpuCompute = new GPUComputationRenderer(GRID_SIZE, GRID_SIZE, renderer);
-        
-        if (!gpuCompute.init()) {
-            console.error('GPU computation not supported');
-        }
-
-        // Position texture
-        const positionTexture = gpuCompute.createTexture();
-        const velocityTexture = gpuCompute.createTexture();
-        
-        fillTexture(positionTexture, positions);
-        fillTexture(velocityTexture, velocities);
 
         function fillTexture(texture, data) {
             const image = texture.image;
@@ -163,67 +307,12 @@
                 const index = i / 3;
                 const x = index % GRID_SIZE;
                 const y = Math.floor(index / GRID_SIZE);
-                
+
                 image.data[x * 4 + y * GRID_SIZE * 4] = data[i];     // R = x
                 image.data[x * 4 + y * GRID_SIZE * 4 + 1] = data[i + 1]; // G = y
                 image.data[x * 4 + y * GRID_SIZE * 4 + 2] = data[i + 2]; // B = z
                 image.data[x * 4 + y * GRID_SIZE * 4 + 3] = 1.0;         // A
             }
-        }
-
-        // Compute shader for physics simulation
-        const positionVariable = gpuCompute.addVariable('texturePosition', getPositionFragmentShader(), positionTexture);
-        const velocityVariable = gpuCompute.addVariable('textureVel', getVelocityFragmentShader(), velocityTexture);
-        
-        gpuCompute.setVariableDependencies(positionVariable, [positionVariable, velocityVariable]);
-        gpuCompute.setVariableDependencies(velocityVariable, [velocityVariable, positionVariable]);
-
-        const uniformsPosition = positionVariable.material.uniforms;
-        const uniformsVelocity = velocityVariable.material.uniforms;
-        
-        uniformsPosition.textureVel = { value: null };
-        uniformsPosition.mousePos = { value: new THREE.Vector2() };
-        uniformsPosition.mouseInfluence = { value: 0.0 };
-        uniformsPosition.returnSpeed = { value: 0.05 };
-        uniformsPosition.originTexture = { value: createOriginTexture() };
-        
-        uniformsVelocity.mousePos = { value: new THREE.Vector2() };
-        uniformsVelocity.mouseInfluence = { value: 0.0 };
-        uniformsVelocity.mousePressed = { value: 0.0 };
-        uniformsVelocity.mouseStrength = { value: 0.5 };
-        uniformsVelocity.inertia = { value: 0.98 };
-        uniformsVelocity.maxVelocity = { value: 5.0 };
-        uniformsVelocity.damping = { value: 0.93 };
-        uniformsVelocity.pressSign = { value: 1.0 }; // -1.0 means press repels; 1.0 means press attracts
-
-        const error = gpuCompute.init();
-        if (error !== null) {
-            console.error(error);
-        }
-
-        function createOriginTexture() {
-            const texture = new THREE.DataTexture(
-                new Float32Array(TOTAL_POINTS * 4),
-                GRID_SIZE,
-                GRID_SIZE,
-                THREE.RGBAFormat,
-                THREE.FloatType
-            );
-            texture.needsUpdate = true;
-            
-            const image = texture.image;
-            for (let i = 0; i < origins.length; i += 3) {
-                const index = i / 3;
-                const x = index % GRID_SIZE;
-                const y = Math.floor(index / GRID_SIZE);
-                
-                image.data[x * 4 + y * GRID_SIZE * 4] = origins[i];
-                image.data[x * 4 + y * GRID_SIZE * 4 + 1] = origins[i + 1];
-                image.data[x * 4 + y * GRID_SIZE * 4 + 2] = origins[i + 2];
-                image.data[x * 4 + y * GRID_SIZE * 4 + 3] = 1.0;
-            }
-            
-            return texture;
         }
 
         function getPositionFragmentShader() {
@@ -238,15 +327,15 @@
                     vec4 pos = texture2D(texturePosition, uv);
                     vec4 vel = texture2D(textureVel, uv);
                     vec4 origin = texture2D(originTexture, uv);
-                    
+
                     // Update position based on velocity
                     vec3 newPos = pos.xyz + vel.xyz * 0.01;
-                    
+
                     // Lerp back to origin when mouse is not moving
                     if (mouseInfluence < 0.01) {
                         newPos = mix(newPos, origin.xyz, returnSpeed);
                     }
-                    
+
                     gl_FragColor = vec4(newPos, 1.0);
                 }
             `;
@@ -267,9 +356,9 @@
                     vec2 uv = gl_FragCoord.xy / resolution.xy;
                     vec4 pos = texture2D(texturePosition, uv);
                     vec4 vel = texture2D(textureVel, uv);
-                    
+
                     vec3 currentVel = vel.xyz;
-                    
+
                     // Apply mouse influence
                     if (mouseInfluence > 0.01) {
                         // Convert mouse position from screen space to world space
@@ -277,12 +366,12 @@
                         vec2 mouseWorldPos = mousePos * 15.0;
                         vec2 dist = mouseWorldPos - pos.xy;
                         float distMag = length(dist);
-                        
+
                         // Calculate influence based on distance
                         float influenceRange = 6.0;
                         float influenceFactor = 1.0 - clamp(distMag / influenceRange, 0.0, 1.0);
                         influenceFactor = pow(influenceFactor, 2.0);
-                        
+
                         // Apply force: configurable by pressSign
                         if (distMag > 0.001) {
                             float forceDirection = mousePressed > 0.5 ? pressSign : -pressSign;
@@ -290,134 +379,50 @@
                             currentVel.xy += force;
                         }
                     }
-                    
+
                     // Apply inertia (momentum)
                     currentVel *= inertia;
-                    
+
                     // Clamp velocity
                     float velMag = length(currentVel);
                     if (velMag > maxVelocity) {
                         currentVel = normalize(currentVel) * maxVelocity;
                     }
-                    
+
                     // Reduce velocity when returning to origin (when mouse stops)
                     if (mouseInfluence < 0.01) {
                         currentVel *= damping;
                     }
-                    
+
                     gl_FragColor = vec4(currentVel, 1.0);
                 }
             `;
         }
 
-        // Render shader - points with velocity-based color
-        // Create UV coordinates for texture sampling
-        const uvs = new Float32Array(TOTAL_POINTS * 2);
-        for (let i = 0; i < GRID_SIZE; i++) {
-            for (let j = 0; j < GRID_SIZE; j++) {
-                const idx = i * GRID_SIZE + j;
-                uvs[idx * 2] = (j + 0.5) / GRID_SIZE; // x coordinate
-                uvs[idx * 2 + 1] = (i + 0.5) / GRID_SIZE; // y coordinate
+        function createOriginTexture() {
+            const texture = new THREE.DataTexture(
+                new Float32Array(TOTAL_POINTS * 4),
+                GRID_SIZE,
+                GRID_SIZE,
+                THREE.RGBAFormat,
+                THREE.FloatType
+            );
+            texture.needsUpdate = true;
+
+            const image = texture.image;
+            for (let i = 0; i < origins.length; i += 3) {
+                const index = i / 3;
+                const x = index % GRID_SIZE;
+                const y = Math.floor(index / GRID_SIZE);
+
+                image.data[x * 4 + y * GRID_SIZE * 4] = origins[i];
+                image.data[x * 4 + y * GRID_SIZE * 4 + 1] = origins[i + 1];
+                image.data[x * 4 + y * GRID_SIZE * 4 + 2] = origins[i + 2];
+                image.data[x * 4 + y * GRID_SIZE * 4 + 3] = 1.0;
             }
+
+            return texture;
         }
-        
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-        
-        const pointMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-                texturePosition: { value: null },
-                textureVel: { value: null },
-                pointSize: { value: 10.0 }
-            },
-            vertexShader: `
-                uniform sampler2D texturePosition;
-                uniform sampler2D textureVel;
-                uniform float pointSize;
-                
-                varying vec3 vColor;
-                
-                void main() {
-                    vec4 pos = texture2D(texturePosition, uv);
-                    vec4 vel = texture2D(textureVel, uv);
-                    
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos.xyz, 1.0);
-                    gl_PointSize = pointSize;
-                    
-                    float velMag = length(vel.xyz);
-                    
-                    // Color based on velocity: blue (0) to red (high)
-                    // For medium velocity, mix to purple
-                    float normalizedVel = clamp(velMag / 5.0, 0.0, 1.0);
-                    
-                    if (normalizedVel < 0.5) {
-                        // Blue to purple
-                        vec3 color1 = vec3(0.0, 0.0, 1.0); // blue
-                        vec3 color2 = vec3(0.5, 0.0, 0.5); // purple
-                        vColor = mix(color1, color2, normalizedVel * 2.0);
-                    } else {
-                        // Purple to red
-                        vec3 color1 = vec3(0.5, 0.0, 0.5); // purple
-                        vec3 color2 = vec3(1.0, 0.0, 0.0); // red
-                        vColor = mix(color1, color2, (normalizedVel - 0.5) * 2.0);
-                    }
-                }
-            `,
-            fragmentShader: `
-                varying vec3 vColor;
-                
-                void main() {
-                    // Circular point
-                    vec2 coord = gl_PointCoord - vec2(0.5);
-                    if (dot(coord, coord) > 0.25) discard;
-                    
-                    gl_FragColor = vec4(vColor * 3.0, 1.0);
-                }
-            `,
-            transparent: true,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            depthTest: false // Disable depth test for dynamic points
-        });
-
-        const points = new THREE.Points(geometry, pointMaterial);
-        points.renderOrder = 1; // Render dynamic points after static points
-        scene.add(points);
-
-        // Static points for origin grid
-        const staticPointMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-                originTexture: { value: createOriginTexture() },
-                pointSize: { value: 5.0 } // Smaller size for static dots
-            },
-            vertexShader: `
-                uniform sampler2D originTexture;
-                uniform float pointSize;
-                
-                void main() {
-                    vec4 origin = texture2D(originTexture, uv);
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(origin.xyz, 1.0);
-                    gl_PointSize = pointSize;
-                }
-            `,
-            fragmentShader: `
-                void main() {
-                    // Circular point
-                    vec2 coord = gl_PointCoord - vec2(0.5);
-                    if (dot(coord, coord) > 0.25) discard;
-                    
-                    gl_FragColor = vec4(0.0, 1.0, 0.0, 0.1); // Green color
-                }
-            `,
-            transparent: true,
-            blending: THREE.NormalBlending, // Normal blending for static points
-            depthWrite: true, // Write to depth buffer for static points
-            depthTest: true // Test depth for static points
-        });
-
-        // const staticPoints = new THREE.Points(geometry, staticPointMaterial); // Reuse geometry
-        // scene.add(staticPoints);
 
         // Mouse tracking
         const mouse = new THREE.Vector2();
