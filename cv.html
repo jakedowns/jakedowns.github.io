@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jake Downs - CV</title>
+    <style>
+        :root {
+            /* Light Mode - Braun / Rams Palette */
+            --bg-color: #f4f4f0; /* Warm off-white / Matte plastic */
+            --text-color: #111111; /* Stark black */
+            --accent-color: #ff4400; /* Braun orange */
+            --line-color: #111111;
+        }
+
+        [data-theme="dark"] {
+            /* Dark Mode */
+            --bg-color: #1a1a1a; /* Dark gray */
+            --text-color: #f4f4f0; /* Warm off-white */
+            --accent-color: #ff4400; /* Braun orange (keep same) */
+            --line-color: #333333; /* Medium dark gray */
+        }
+        
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'JetBrains Mono', 'Fira Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+            margin: 0;
+            padding: 40px;
+            box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            position: relative;
+        }
+
+        /* Top Accent Line */
+        .top-accent {
+            height: 8px;
+            background-color: var(--accent-color);
+            width: 100%;
+            margin-bottom: 24px;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 40px;
+            text-transform: uppercase;
+            letter-spacing: -0.5px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0 0 4px 0;
+            line-height: 1.2;
+        }
+
+        .subtitle {
+            font-size: 24px;
+            font-weight: 400;
+            margin: 0;
+            line-height: 1.2;
+        }
+
+        .meta {
+            text-align: right;
+            font-size: 24px;
+            font-weight: 400;
+            line-height: 1.2;
+        }
+
+        .theme-toggle {
+            margin-top: 16px;
+            padding: 8px 16px;
+            background: transparent;
+            border: 2px solid var(--accent-color);
+            color: var(--accent-color);
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: -0.5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            background-color: var(--accent-color);
+            color: var(--bg-color);
+        }
+
+        /* Horizontal Rules */
+        hr {
+            border: 0;
+            border-top: 2px solid var(--line-color);
+            margin: 30px 0;
+        }
+
+        /* Sections */
+        .section-header {
+            font-size: 24px;
+            font-weight: 400;
+            margin-bottom: 24px;
+            text-transform: uppercase;
+        }
+
+        .grid-2-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .spec-group {
+            margin-bottom: 16px;
+            flex-direction: row;
+            display: flex;
+        }
+
+        .label {
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 16px;
+            margin-right: 8px;
+            display: inline-block;
+            min-width: 100px;
+        }
+
+        .value {
+            font-size: 16px;
+            line-height: 1.4;
+        }
+
+        /* History Section */
+        .history-item {
+            display: grid;
+            grid-template-columns: 100px 1fr;
+            margin-bottom: 24px;
+        }
+
+        .year {
+            font-weight: 700;
+            font-size: 18px;
+        }
+
+        .job-details h3 {
+            margin: 0 0 4px 0;
+            font-size: 18px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .job-details p {
+            margin: 0;
+            font-size: 16px;
+            line-height: 1.4;
+        }
+
+        /* Footer / Connect */
+        .connect-grid {
+            display: grid;
+            grid-template-columns: 100px 1fr;
+            gap: 8px;
+            margin-bottom: 40px;
+        }
+
+        .footer-note {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            margin-top: 60px;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+        }
+        a:hover {
+            border-bottom: 1px solid var(--text-color);
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            header { flex-direction: column; }
+            .meta { text-align: left; margin-top: 16px; }
+            .grid-2-col { grid-template-columns: 1fr; }
+            .history-item { grid-template-columns: 1fr; gap: 8px;}
+            .connect-grid { grid-template-columns: 80px 1fr; }
+        }
+
+        .theme-toggle {
+            float: right;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <button class="theme-toggle" id="theme-toggle">Light Mode</button>
+
+    <style>
+        .clearfix::after {
+            content: "";
+            display: table;
+            clear: both;
+        }
+    </style>
+    <div class="clearfix"></div>
+    <div class="top-accent"></div>
+
+    <header>
+        <div>
+            <h1>Jake Downs</h1>
+            <div class="subtitle">Creative Software Engineer<br>XR & Full-Stack</div>
+        </div>
+        <div class="meta">
+            Remote (US)<br>
+            Est. ~20 Yrs
+        </div>
+    </header>
+
+    <hr>
+
+    <section>
+        <div class="section-header">01 Specifications</div>
+        <div class="grid-2-col">
+            <div>
+                <div class="spec-group">
+                    <span class="label">Languages:</span>
+                    <span class="value">PHP (Laravel), JS/TS, C#, GLSL</span>
+                </div>
+                <div class="spec-group">
+                    <span class="label">Interface:</span>
+                    <span class="value">React, Vue, Inertia.js, Unity</span>
+                </div>
+            </div>
+            <div>
+                <div class="spec-group">
+                    <span class="label">Systems:</span>
+                    <span class="value">MySQL, Redis, GraphQL, REST APIs, AWS, WebSockets</span>
+                </div>
+                <div class="spec-group">
+                    <span class="label">Domains:</span>
+                    <span class="value">Full-Stack, Real-Time, XR/Game Dev</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <hr>
+
+    <section>
+        <div class="section-header">02 System History</div>
+        
+        <div class="history-item">
+            <div class="year">V.2023</div>
+            <div class="job-details">
+                <h3>Powered On Software, LLC</h3>
+                <p>R&D Software Engineer. XR/Web platforms, custom GLSL shaders, AR displays.</p>
+            </div>
+        </div>
+
+        <div class="history-item">
+            <div class="year">V.2023</div>
+            <div class="job-details">
+                <h3>Pillow</h3>
+                <p>XR Programmer. Unity (C#) core systems, art-directable GLSL shaders, multiplayer.</p>
+            </div>
+        </div>
+
+        <div class="history-item">
+            <div class="year">V.2017</div>
+            <div class="job-details">
+                <h3>Wright Auction House</h3>
+                <p>Senior Software Engineer. Front-end SPA, Laravel/PHP CMS, Real-time bidding via Pusher/WebSockets.</p>
+            </div>
+        </div>
+    </section>
+
+    <hr>
+
+    <section>
+        <div class="section-header">03 Connect / Status</div>
+        
+        <div class="connect-grid">
+            <span class="label">Signal:</span>
+            <span class="value"><a href="mailto:hello@jakedowns.com">hello@jakedowns.com</a></span>
+            
+            <span class="label">Net:</span>
+            <span class="value"><a href="https://jakedowns.com" target="_blank">jakedowns.com</a></span>
+            
+            <span class="label">Status:</span>
+            <span class="value">Open to Full-Time Remote Roles</span>
+        </div>
+    </section>
+
+    <div class="footer-note">
+        <span>Design: Functionalist Principles</span>
+        <span>System 01</span>
+    </div>
+
+</div>
+
+<script>
+    // Theme toggle functionality
+    const html = document.documentElement;
+    const themeToggle = document.getElementById('theme-toggle');
+
+    // Get saved theme from localStorage, default to 'dark'
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+
+    // Set initial theme
+    html.setAttribute('data-theme', savedTheme);
+    updateToggleButton(savedTheme);
+
+    // Toggle theme on button click
+    themeToggle.addEventListener('click', () => {
+        const currentTheme = html.getAttribute('data-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+        html.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        updateToggleButton(newTheme);
+    });
+
+    function updateToggleButton(theme) {
+        themeToggle.textContent = theme === 'dark' ? 'Light Mode' : 'Dark Mode';
+    }
+</script>
+
+</body>
+</html>
