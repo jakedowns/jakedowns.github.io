@@ -1,7 +1,78 @@
-import { Canvas } from '@react-three/fiber'
+import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Stars, Text, Float, MeshDistortMaterial } from '@react-three/drei'
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import * as THREE from 'three'
+
+// KeyboardControllerBox: like Box, but position can be moved with keyboard (arrow or WASD)
+// REWRITE: if the key is down, keep stepping the position
+function KeyboardControllerBox({ initialPosition = [2, 0, 0], color, ...props }) {
+  const meshRef = useRef()
+  const [hovered, setHovered] = useState(false)
+  const [clicked, setClicked] = useState(false)
+  const [position, setPosition] = useState(initialPosition)
+  const keysDownRef = useRef({})
+
+  // Track key states (keydown/keyup)
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      keysDownRef.current[event.key.toLowerCase()] = true
+    }
+    const handleKeyUp = (event) => {
+      keysDownRef.current[event.key.toLowerCase()] = false
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
+
+  // Update position as long as keys are down
+  useFrame(() => {
+    let [x, y, z] = position
+    const step = 0.15
+    let next = [x, y, z]
+    let moved = false
+    const keysDown = keysDownRef.current
+
+    if (keysDown['arrowleft'] || keysDown['a']) {
+      next[0] -= step
+      moved = true
+    }
+    if (keysDown['arrowright'] || keysDown['d']) {
+      next[0] += step
+      moved = true
+    }
+    if (keysDown['arrowup'] || keysDown['w']) {
+      next[2] -= step
+      moved = true
+    }
+    if (keysDown['arrowdown'] || keysDown['s']) {
+      next[2] += step
+      moved = true
+    }
+    // Only update if changed, avoid infinite rerender
+    if (moved) {
+      setPosition(next)
+    }
+  })
+
+  return (
+    <mesh
+      {...props}
+      ref={meshRef}
+      scale={clicked ? 1.5 : hovered ? 1.2 : 1}
+      position={position}
+      onClick={() => setClicked(!clicked)}
+      onPointerOver={() => setHovered(true)}
+      onPointerOut={() => setHovered(false)}
+    >
+      <boxGeometry args={[1, 1, 1]} />
+      <meshStandardMaterial color={hovered ? 'hotpink' : color} />
+    </mesh>
+  )
+}
 
 function Box({ position, color, ...props }) {
   const meshRef = useRef()
@@ -63,7 +134,7 @@ function AnimatedText() {
         anchorX="center"
         anchorY="middle"
       >
-        R3F Example
+        jakedowns.com
       </Text>
     </Float>
   )
@@ -79,7 +150,8 @@ function Scene() {
 
       {/* Objects */}
       <Box position={[-2, 0, 0]} color="#ff6b6b" />
-      <Box position={[2, 0, 0]} color="#4ecdc4" />
+      {/* Keyboard controlled box */}
+      <KeyboardControllerBox initialPosition={[2, 0, 0]} color="#4ecdc4" />
       <Sphere position={[0, 2, 0]} />
       <Torus position={[0, -2, 0]} />
 
