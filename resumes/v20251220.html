@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jake Downs - Creative Technologist Resume</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #2563eb;
+            --text-color: #334155;
+            --light-text: #64748b;
+            --bg-color: #ffffff;
+            --section-bg: #f8fafc;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 850px;
+            margin: 40px auto;
+            padding: 40px;
+            background: #fff;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Header */
+        header {
+            border-bottom: 2px solid var(--section-bg);
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            color: var(--primary-color);
+            margin: 0 0 10px 0;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+        }
+
+        .title {
+            font-size: 1.25rem;
+            color: var(--accent-color);
+            font-weight: 600;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .contact-info {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            font-size: 0.95rem;
+            color: var(--light-text);
+        }
+
+        .contact-info a {
+            color: var(--light-text);
+            text-decoration: none;
+            border-bottom: 1px dotted var(--light-text);
+        }
+
+        /* Sections */
+        section {
+            margin-bottom: 35px;
+        }
+
+        h2 {
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--accent-color);
+            padding-bottom: 5px;
+            margin-bottom: 20px;
+            letter-spacing: 0.05em;
+        }
+
+        /* Skills Grid */
+        .skills-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .skill-category h3 {
+            font-size: 1rem;
+            margin: 0 0 10px 0;
+            color: var(--primary-color);
+        }
+
+        .skill-tags {
+            font-size: 0.9rem;
+            color: var(--text-color);
+        }
+
+        /* Experience */
+        .job {
+            margin-bottom: 25px;
+        }
+
+        .job-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 5px;
+        }
+
+        .job-title {
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: var(--primary-color);
+        }
+
+        .company {
+            font-weight: 600;
+            color: var(--accent-color);
+        }
+
+        .dates {
+            font-size: 0.9rem;
+            color: var(--light-text);
+            font-style: italic;
+        }
+
+        .job-summary {
+            font-style: italic;
+            color: var(--light-text);
+            margin-bottom: 10px;
+            font-size: 0.95rem;
+        }
+
+        ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 6px;
+        }
+
+
+        @media (max-width: 600px) {
+            .container {
+                margin: 0;
+                padding: 20px;
+                box-shadow: none;
+            }
+            .job-header {
+                flex-direction: column;
+            }
+        }
+        
+        @media print {
+            @page {
+                size: letter;
+                margin: 0.5in;
+            }
+            
+            * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            
+            body {
+                background: #fff;
+                margin: 0;
+                padding: 0;
+                font-size: 11pt;
+                line-height: 1.4;
+            }
+            
+            .container {
+                box-shadow: none;
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                max-width: none;
+                page-break-inside: avoid;
+            }
+            
+            header {
+                padding-bottom: 10px;
+                margin-bottom: 15px;
+                border-bottom: 1px solid var(--section-bg);
+            }
+            
+            h1 {
+                font-size: 1.8rem;
+                margin: 0 0 5px 0;
+            }
+            
+            .title {
+                font-size: 1rem;
+                margin-bottom: 8px;
+            }
+            
+            .contact-info {
+                font-size: 0.85rem;
+                gap: 10px;
+            }
+            
+            section {
+                margin-bottom: 15px;
+                page-break-inside: avoid;
+            }
+            
+            h2 {
+                font-size: 0.95rem;
+                margin-bottom: 10px;
+                padding-bottom: 3px;
+            }
+            
+            .job {
+                margin-bottom: 12px;
+                page-break-inside: avoid;
+            }
+            
+            .job-title {
+                font-size: 0.95rem;
+            }
+            
+            .job-summary {
+                font-size: 0.85rem;
+                margin-bottom: 6px;
+            }
+            
+            ul {
+                padding-left: 18px;
+            }
+            
+            li {
+                margin-bottom: 3px;
+                font-size: 0.9rem;
+            }
+            
+            .skills-grid {
+                gap: 12px;
+            }
+            
+            .skill-category h3 {
+                font-size: 0.9rem;
+                margin: 0 0 5px 0;
+            }
+            
+            .skill-tags {
+                font-size: 0.85rem;
+            }
+            
+            a {
+                text-decoration: none;
+                color: #000;
+            }
+            
+            a[href^="http"]:after {
+                content: "";
+            }
+        }
+    </style>
+
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>Jake Downs</h1>
+        <div class="title">Creative Software Engineer | XR & R&D Specialist</div>
+        <div class="contact-info">
+            <span>Remote (US)</span>
+            <span><a href="mailto:hello@jakedowns.com">hello@jakedowns.com</a></span>
+            <!-- <span></span> -->
+            <span><a href="http://jakedowns.com" target="_blank">jakedowns.com</a></span>
+            <span><a href="https://linkedin.com/in/jakedowns" target="_blank">linkedin.com/in/jakedowns</a></span>
+        </div>
+        </header>
+
+    <section>
+        <h2>Professional Summary</h2>
+        <p>
+            Creative software engineer and creative technologist with approximately 20 years of experience bridging the gap between full-stack web platforms, real-time systems, and XR/game development. Proven ability to own complex front-end applications and ship production systems for e-commerce, multiplayer experiences, and mixed reality. Excited to explore passions in XR, AI, and game development, applying deep programming experience to creative endeavors on the leading edge of technology.
+        </p>
+    </section>
+
+    <section>
+        <h2>Technical Proficiency</h2>
+        <div class="skills-grid">
+            <div class="skill-category">
+                <h3>XR & Game Dev</h3>
+                <div class="skill-tags">
+                    Unity, C#, GLSL Shaders, Mixed Reality (MR), 3D Animation, Blender, WebRTC, Sensors.
+                </div>
+            </div>
+            <div class="skill-category">
+                <h3>AI & Machine Learning</h3>
+                <div class="skill-tags">
+                    Generative AI, OpenAI APIs, Prompt Engineering, Python, AI Models, Model Training, Data Visualization.
+                </div>
+            </div>
+            <div class="skill-category">
+                <h3>Full Stack Web</h3>
+                <div class="skill-tags">
+                    PHP (Laravel), JavaScript (React, Vue.js, Inertia.js), TypeScript, Node.js, HTML5/CSS3, Tailwind CSS, SASS.
+                </div>
+            </div>
+            <div class="skill-category">
+                <h3>Backend & DevOps</h3>
+                <div class="skill-tags">
+                    MySQL, Redis, AWS, GraphQL, REST APIs, WebSockets (Pusher), Docker, CI/CD, Git.
+                </div>
+            </div>
+            <div class="skill-category">
+                <h3>Multimedia & Creative</h3>
+                <div class="skill-tags">
+                    Multimedia, Video Editing, Audio Editing, Animation, Illustration, Data Visualization, Charting.
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>Professional Experience</h2>
+
+        <div class="job">
+            <div class="job-header">
+                <div>
+                    <span class="job-title">Owner / R&D Software Engineer</span> <br>
+                    <span class="company">Powered On Software, LLC</span>
+                </div>
+                <span class="dates">Jan 2023 – Present</span>
+            </div>
+            <div class="job-summary">
+                Operating a freelance R&D lab bridging large-scale web platforms with XR and AI.
+            </div>
+            <ul>
+                <li>Prototyped and shipped experimental applications across XR, mobile, and real-time graphics.</li>
+                <li>Built Unity-based applications and custom GLSL shaders, targeting stereoscopic and AR displays.</li>
+                <li>Explored new pipelines spanning rendering, interaction, and deployment on the leading edge of what is possible.</li>
+            </ul>
+        </div>
+
+        <div class="job">
+            <div class="job-header">
+                <div>
+                    <span class="job-title">Senior Software Engineer</span> <br>
+                    <span class="company">Wright Auction House</span>
+                </div>
+                <span class="dates">Jan 2017 – Apr 2024</span>
+            </div>
+            <div class="job-summary">
+                Lead engineer for a premier auction house, owning the full-stack modernization of a high-traffic bidding platform.
+            </div>
+            <ul>
+                <li>Owned and led development of the primary front-end SPA supporting thousands of users, bids, and lots sold.</li>
+                <li>Built features using React, Vue.js, and Inertia.js backed by REST and GraphQL APIs.</li>
+                <li>Implemented real-time bidding and updates via Pusher/WebSockets for live auction events.</li>
+                <li>Contributed ~50/50 to a bespoke Laravel/PHP CMS, expanding it from one tenant to six auction houses.</li>
+                <li>Led efforts to introduce and expand automated testing and deployed systems on AWS.</li>
+            </ul>
+        </div>
+
+        <div class="job">
+            <div class="job-header">
+                <div>
+                    <span class="job-title">XR Programmer (Mixed Reality)</span> <br>
+                    <span class="company">Pillow</span>
+                </div>
+                <span class="dates">Mar 2023 – Feb 2024</span>
+            </div>
+            <div class="job-summary">
+                Core gameplay programmer for "Pillow," an award-winning mixed reality game for Meta Quest.
+            </div>
+            <ul>
+                <li>Implemented core gameplay systems in Unity (C#) and developed custom rendering solutions.</li>
+                <li>Used C# and GLSL to make art-directable shaders for unique visual styles.</li>
+                <li>Worked on a system for recording and uploading audio from users.</li>
+                <li>Built a DLC system enabling Over-The-Air (OTA) content upgrades without re-submitting to the app store.</li>
+                <li>Contributed to multiplayer systems and real-time interactions.</li>
+            </ul>
+        </div>
+
+        <div class="job">
+            <div class="job-header">
+                <div>
+                    <span class="job-title">Senior Software Engineer</span> <br>
+                    <span class="company">RDI/A (formerly Oncall Interactive)</span>
+                </div>
+                <span class="dates">Jan 2012 – Dec 2016</span>
+            </div>
+            <ul>
+                <li>Shipped many websites and interactive games for clients including Chicago Tribune, American Girl, NFL, and MLB.</li>
+                <li>Developed games and apps that worked on iOS, Android, and Facebook Game Center.</li>
+                <li>Implemented Real-time Pusher/Websocket based application designs.</li>
+            </ul>
+        </div>
+    </section>
+
+    <section>
+        <h2>Education</h2>
+        <div class="job-header">
+            <div>
+                <span class="job-title">IT / Computer Science</span> <br>
+                <span class="company">Millstream Career & Technical Center</span>
+            </div>
+            <span class="dates">Findlay, OH</span>
+        </div>
+        </section>
+</div>
+
+</body>
+</html>

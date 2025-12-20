@@ -1,0 +1,1366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Synth Time</title>
+  <style>
+    :root {
+      --main-bg: #17191b;
+      --panel-bg: #232529;
+      --glow-green: #00ff99;
+      --grid-green: #245642;
+      --beat-on: #3cf4ac;
+      --beat-off: #222825;
+      --note-on: #7df6d3;
+      --note-off: #232529;
+      --border-radius: 22px;
+      --surface: #252729;
+      --label: #cccccc;
+    }
+
+    html, body {
+      background: var(--main-bg);
+      margin: 0;
+      padding: 0;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Fira Mono', 'Menlo', 'Consolas', monospace;
+      color: #f9f9f9;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+
+    .ram-box {
+      background: var(--panel-bg);
+      max-width: 700px;
+      margin: 32px auto 32px auto;
+      border-radius: var(--border-radius);
+      box-shadow: 0 4px 40px #000a, 0 1.5px 0 #1b1d1f inset;
+      padding: 2.5rem;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 2.25rem;
+      border: 1px solid #222;
+    }
+
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: -1rem;
+    }
+    
+    .ram-mono-label {
+      font-family: inherit;
+      font-size: 1.5rem;
+      letter-spacing: 0.07em;
+      font-weight: 600;
+      color: #7fffd4;
+      text-align: left;
+      user-select: none;
+      text-shadow: 0 0 10px #222, 0 0 14px #00885f55;
+      flex: 1;
+    }
+    
+    .play-pause-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 2px solid #243d31;
+      color: var(--glow-green);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      transition: all 0.2s;
+      box-shadow: 0 2px 8px #000a, inset 0 1px 2px #0004;
+      user-select: none;
+    }
+    
+    .play-pause-btn:hover {
+      border-color: #00ff9980;
+      box-shadow: 0 0 12px #00ff9955;
+    }
+    
+    .play-pause-btn:active {
+      transform: scale(0.95);
+    }
+    
+    .play-pause-btn.playing {
+      background: var(--glow-green);
+      color: #000;
+      border-color: #00ff99;
+      box-shadow: 0 0 16px #00ff9988;
+    }
+
+    .oscilloscope-wrap {
+      background: #202a25;
+      border-radius: var(--border-radius);
+      box-shadow: 0 2px 18px #00332222, 0 0px 0 #2e423a inset;
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+      position: relative;
+      transition: box-shadow 0.1s;
+    }
+    
+    .oscilloscope-wrap.pulse {
+      box-shadow: 0 2px 18px #00332222, 0 0px 0 #2e423a inset, 0 0 20px #00ff9966;
+    }
+
+    canvas#viz {
+      width: 100%;
+      height: 176px;
+      display: block;
+      border-radius: var(--border-radius);
+      background: transparent;
+    }
+
+    .sequencer-label, .piano-label {
+      color: var(--label);
+      font-size: 0.95rem;
+      margin-left: 6px;
+      font-family: inherit;
+      opacity: 0.6;
+      padding: 0.25rem 0;
+    }
+
+    .sequencer {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      align-items: center;
+    }
+
+    .sequencer-grid, .piano-roll-grid {
+      display: grid;
+      grid-template-columns: repeat(16, 1fr);
+      gap: 7px;
+      margin: 0.2rem 0 0.7rem 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    
+    .sequencer {
+      width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+
+    .sequencer-grid {
+      grid-template-rows: 1fr;
+      height: 34px;
+    }
+
+    .beat {
+      height: 34px;
+      border-radius: 7px;
+      background: var(--beat-off);
+      transition: background .16s, box-shadow .17s;
+      box-shadow: 0 1.5px 5px #15452344;
+      border: 1.5px solid #274d3c70;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .beat.on {
+      background: var(--beat-on);
+      box-shadow:
+        0 0 8px #00ff9955, 
+        0 1.5px 7px #17c77c33,
+        0 0 0px 1.5px #00ff99 inset;
+      border: 2px solid #00ff9980;
+    }
+
+    .beat.active {
+      outline: 2px solid #fff0;
+      filter: brightness(1.5) drop-shadow(0 0 2px #00ff99);
+    }
+
+    .piano-roll {
+      margin-top: 0.9rem;
+      user-select: none;
+    }
+    
+    .synth-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 0.5rem;
+    }
+    
+    .synth-tab {
+      padding: 8px 16px;
+      background: var(--surface);
+      border: 1.5px solid #243d31;
+      border-radius: 7px;
+      color: var(--label);
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+      opacity: 0.6;
+    }
+    
+    .synth-tab.active {
+      background: var(--note-on);
+      border-color: #00ff9960;
+      color: #000;
+      opacity: 1;
+      box-shadow: 0 0 8px #00ff9955;
+    }
+    
+    .synth-tab:hover {
+      opacity: 1;
+      border-color: #00ff9980;
+    }
+    
+    .controls-row {
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      margin: 1rem 0;
+      flex-wrap: wrap;
+    }
+    
+    .tempo-control, .pitch-control, .reverb-control {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .tempo-label {
+      color: var(--label);
+      font-size: 0.9rem;
+      opacity: 0.7;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .tempo-knob-wrapper {
+      position: relative;
+      width: 80px;
+      height: 80px;
+    }
+    
+    .tempo-knob {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 2px solid #243d31;
+      position: relative;
+      cursor: pointer;
+      box-shadow: 0 2px 8px #000a, inset 0 1px 2px #0004;
+      transition: border-color 0.2s;
+    }
+    
+    .tempo-knob:hover {
+      border-color: #00ff9980;
+    }
+    
+    .tempo-knob:active {
+      border-color: #00ff99;
+    }
+    
+    .tempo-knob-indicator {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 20px;
+      background: var(--glow-green);
+      border-radius: 2px;
+      box-shadow: 0 0 6px var(--glow-green);
+      transform-origin: center 32px;
+      transition: transform 0.1s;
+    }
+    
+    .tempo-value, .pitch-value, .reverb-value {
+      color: var(--glow-green);
+      font-size: 1.1rem;
+      font-weight: 600;
+      text-shadow: 0 0 8px #00ff9955;
+      min-height: 1.5rem;
+    }
+    
+    .pitch-knob-wrapper {
+      position: relative;
+      width: 80px;
+      height: 80px;
+    }
+    
+    .pitch-knob {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 2px solid #243d31;
+      position: relative;
+      cursor: pointer;
+      box-shadow: 0 2px 8px #000a, inset 0 1px 2px #0004;
+      transition: border-color 0.2s;
+    }
+    
+    .pitch-knob:hover {
+      border-color: #00ff9980;
+    }
+    
+    .pitch-knob:active {
+      border-color: #00ff99;
+    }
+    
+    .pitch-knob-indicator {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 20px;
+      background: var(--glow-green);
+      border-radius: 2px;
+      box-shadow: 0 0 6px var(--glow-green);
+      transform-origin: center 32px;
+      transition: transform 0.1s;
+    }
+    
+    .pitch-label, .reverb-label {
+      color: var(--label);
+      font-size: 0.9rem;
+      opacity: 0.7;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .reverb-knob-wrapper {
+      position: relative;
+      width: 80px;
+      height: 80px;
+    }
+    
+    .reverb-knob {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 2px solid #243d31;
+      position: relative;
+      cursor: pointer;
+      box-shadow: 0 2px 8px #000a, inset 0 1px 2px #0004;
+      transition: border-color 0.2s;
+    }
+    
+    .reverb-knob:hover {
+      border-color: #00ff9980;
+    }
+    
+    .reverb-knob:active {
+      border-color: #00ff99;
+    }
+    
+    .reverb-knob-indicator {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 20px;
+      background: var(--glow-green);
+      border-radius: 2px;
+      box-shadow: 0 0 6px var(--glow-green);
+      transform-origin: center 32px;
+      transition: transform 0.1s;
+    }
+    .piano-roll-grid {
+      grid-template-rows: repeat(8, 26px);
+      height: 208px;
+    }
+    .note-cell {
+      background: var(--note-off);
+      border-radius: 7px;
+      border: 1px solid #243d31;
+      margin: 0;
+      transition: background .18s, box-shadow .16s;
+      cursor: pointer;
+      position: relative;
+      box-shadow: 0 0.5px 3px #00a57322;
+    }
+    .note-cell.on {
+      background: var(--note-on);
+      box-shadow:
+        0 0 11px #00ff9988,
+        0 0px 0px #08a189 inset;
+      border: 2px solid #00ff9960;
+    }
+    .note-cell.active {
+      outline: 2.5px solid #eafffa;
+      z-index: 1;
+    }
+
+    .footer-label {
+      color: #acffd6;
+      font-size: 1rem;
+      font-family: inherit;
+      opacity: 0.8;
+      text-align: right;
+      margin-top: 1.5rem;
+      margin-bottom: 0;
+      padding-bottom: 0;
+      letter-spacing: 0.04em;
+      text-shadow: 0 1px 12px #172;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 0.5em;
+    }
+    .footer-label a {
+      color: #48ffe9;
+      text-decoration: none;
+      border-bottom: 1.5px solid #36f0b850;
+      transition: color .15s;
+    }
+    .footer-label a:hover {
+      color: #dbf7e8;
+    }
+    
+    /* Drum indicator dots */
+    .drum-dot {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      border-radius: 100%;
+      margin: 0 1px;
+    }
+    
+    .drum-dot.kick {
+      background: #234;
+    }
+    
+    .drum-dot.kick.active {
+      background: #00f1c8;
+      box-shadow: 0 0 4px #9ff;
+    }
+    
+    .drum-dot.snare {
+      background: #342;
+    }
+    
+    .drum-dot.snare.active {
+      background: #fdc800;
+      box-shadow: 0 0 4px #fe0;
+    }
+    
+    .drum-dot.hat {
+      background: #444;
+    }
+    
+    .drum-dot.hat.active {
+      background: #fff;
+      box-shadow: 0 0 3px #cff;
+    }
+    
+    /* Hint message */
+    .hint-message {
+      position: absolute;
+      z-index: 9;
+      left: 50%;
+      top: 35%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    
+    .hint-content {
+      background: #222b;
+      margin: -1.2em auto 0 auto;
+      padding: 12px 24px 14px 24px;
+      border-radius: 14px;
+      border: 1.5px solid #3d4;
+      box-shadow: 0 2px 8px #111;
+      border-bottom: 3.7px solid #5fd596c4;
+      font-size: 1.25em;
+      color: #7fffd4;
+      font-family: 'SF Mono', 'JetBrains Mono', 'Fira Mono', 'Menlo', 'Consolas', monospace;
+      letter-spacing: 0.02em;
+      text-align: center;
+      display: block;
+      max-width: 82%;
+    }
+    
+    .hint-content b {
+      display: block;
+    }
+    
+    .hint-subtext {
+      color: #add8cfcc;
+      font-size: 0.9em;
+      font-weight: 400;
+    }
+
+    @media (max-width: 650px) {
+      .ram-box { padding: 0.7rem 0.5rem 2rem 0.5rem; max-width: 100vw; }
+      .oscilloscope-wrap { margin-left: -1vw; margin-right: -1vw;}
+      canvas#viz {height: 110px;}
+    }
+    @media (max-width: 420px) {
+      .ram-box { padding: 0.18rem 0.1rem 1rem 0.1rem; }
+      canvas#viz {height: 60px;}
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-QJL8TTXHJR"></script>
+  <script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-QJL8TTXHJR');
+  </script>
+</head>
+<body>
+  <div class="ram-box">
+    <div class="header-row">
+      <div class="ram-mono-label">synth time</div>
+      <button class="play-pause-btn" id="play-pause-btn" aria-label="Play/Pause">
+        <span id="play-pause-icon">▶</span>
+      </button>
+    </div>
+    <div class="oscilloscope-wrap">
+      <canvas id="viz" width="590" height="176"></canvas>
+    </div>
+
+    <div class="controls-row">
+      <div class="tempo-control">
+        <div class="tempo-label">Tempo</div>
+        <div class="tempo-knob-wrapper">
+          <div class="tempo-knob" id="tempo-knob">
+            <div class="tempo-knob-indicator" id="tempo-indicator"></div>
+          </div>
+        </div>
+        <div class="tempo-value" id="tempo-value">100 BPM</div>
+      </div>
+      
+      <div class="pitch-control">
+        <div class="pitch-label">Pitch</div>
+        <div class="pitch-knob-wrapper">
+          <div class="pitch-knob" id="pitch-knob">
+            <div class="pitch-knob-indicator" id="pitch-indicator"></div>
+          </div>
+        </div>
+        <div class="pitch-value" id="pitch-value">0</div>
+      </div>
+      
+      <div class="reverb-control">
+        <div class="reverb-label">Reverb</div>
+        <div class="reverb-knob-wrapper">
+          <div class="reverb-knob" id="reverb-knob">
+            <div class="reverb-knob-indicator" id="reverb-indicator"></div>
+          </div>
+        </div>
+        <div class="reverb-value" id="reverb-value">0%</div>
+      </div>
+    </div>
+
+    <div class="sequencer">
+      <div class="sequencer-label">drum sequencer</div>
+      <div class="sequencer-grid" id="drum-seq"></div>
+    </div>
+
+    <div class="piano-roll">
+      <div class="piano-label">piano roll (one octave)</div>
+      <div class="synth-tabs">
+        <div class="synth-tab active" data-voice="0">Voice 1</div>
+        <div class="synth-tab" data-voice="1">Voice 2</div>
+        <div class="synth-tab" data-voice="2">Deep</div>
+      </div>
+      <div class="piano-roll-grid" id="piano-roll"></div>
+    </div>
+
+    <div class="footer-label">
+      <span>experiment 001 by <a href="https://jakedowns.com" target="_blank" rel="noopener">jakedowns</a></span>
+    </div>
+  </div>
+  <script>
+    // Sizing
+    const N_STEPS = 16;
+    const NOTES = ['C5','B4','A#4','A4','G#4','G4','F#4','F4']; // 8 notes
+    // Drums: Only one row, kick, snare, hat use same grid for demo - will connect to master gain below
+    const drums = [
+      new Tone.MembraneSynth(),
+      new Tone.MetalSynth({
+        frequency: 205,
+        envelope: { decay: 0.13 },
+        harmonicity: 5.1,
+      }),
+      new Tone.NoiseSynth({
+        noise: { type: "white" },
+        envelope: { attack: 0.001, decay: 0.09, sustain: 0 },
+      }),
+    ];
+    // Main synths (three voices) - will connect to master gain below
+    const synths = [
+      new Tone.Synth({ oscillator: {type: 'sine'}, envelope: { attack: 0.01, decay:0.07, sustain: 0.3, release: 0.4 } }),
+      new Tone.Synth({ oscillator: {type: 'triangle'}, envelope: { attack: 0.01, decay:0.07, sustain: 0.3, release: 0.4 } }),
+      new Tone.Synth({ oscillator: {type: 'sawtooth'}, envelope: { attack: 0.01, decay:0.07, sustain: 0.3, release: 0.4 } }), // Deep voice
+    ];
+    let currentSynthVoice = 0;
+    
+    // Create reverb effect (early so it's available for state loading)
+    const reverb = new Tone.Reverb({
+      roomSize: 0.9,
+      wet: 0
+    });
+    reverb.generate();
+
+    // Sequencer states
+    let drumGrid = Array(N_STEPS).fill().map(() => [false,false,false]); // [kick,snare,hat]
+    let notesGrid = [
+      Array(8).fill().map(() => Array(N_STEPS).fill(false)), // Voice 1
+      Array(8).fill().map(() => Array(N_STEPS).fill(false)), // Voice 2
+      Array(8).fill().map(() => Array(N_STEPS).fill(false)), // Voice 3 (Deep)
+    ];
+    let currentStep = 0;
+    let isPlaying = false;
+    let intervalId = null;
+    let timeoutId = null; // For tempo change transitions
+    let lastStepTime = 0; // Track when last step executed for smooth tempo changes
+    let tempoBPM = 100; // BPM (beats per minute)
+    let pitchSemitones = 0; // Pitch in semitones (-12 to +12)
+    let reverbAmount = 0; // Reverb wet amount (0-100%)
+    
+    // Load state from localStorage before initializing UI
+    const stateLoaded = loadState();
+    
+    // Convert BPM to interval in ms (16 steps = 4 beats, so interval = 60000 / (BPM * 4))
+    function bpmToInterval(bpm) {
+      return 60000 / (bpm * 4);
+    }
+    
+    // Convert semitones to frequency multiplier
+    function semitonesToMultiplier(semitones) {
+      return Math.pow(2, semitones / 12);
+    }
+    
+    // LocalStorage persistence
+    const STORAGE_KEY = 'synth-time-state';
+    
+    function saveState() {
+      try {
+        const state = {
+          drumGrid: drumGrid,
+          notesGrid: notesGrid,
+          tempoBPM: tempoBPM,
+          pitchSemitones: pitchSemitones,
+          reverbAmount: reverbAmount,
+          currentSynthVoice: currentSynthVoice
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (e) {
+        console.warn('Failed to save state:', e);
+      }
+    }
+    
+    function loadState() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const state = JSON.parse(saved);
+          if (state.drumGrid) drumGrid = state.drumGrid;
+          if (state.notesGrid) {
+            notesGrid = state.notesGrid;
+            // Ensure we have 3 voices (migrate old data with 2 voices)
+            while (notesGrid.length < 3) {
+              notesGrid.push(Array(8).fill().map(() => Array(N_STEPS).fill(false)));
+            }
+          }
+          if (state.tempoBPM !== undefined) tempoBPM = state.tempoBPM;
+          if (state.pitchSemitones !== undefined) pitchSemitones = state.pitchSemitones;
+          if (state.reverbAmount !== undefined) reverbAmount = state.reverbAmount;
+          if (state.currentSynthVoice !== undefined) {
+            currentSynthVoice = Math.min(state.currentSynthVoice, 2); // Clamp to 0-2
+          }
+          return true;
+        }
+      } catch (e) {
+        console.warn('Failed to load state:', e);
+      }
+      return false;
+    }
+    
+    function updateTempo(bpm) {
+      const oldBPM = tempoBPM;
+      tempoBPM = Math.max(40, Math.min(200, bpm)); // Clamp between 40-200 BPM
+      document.getElementById('tempo-value').textContent = Math.round(tempoBPM) + ' BPM';
+      updateKnobRotation(tempoBPM, 'tempo-indicator', 40, 200);
+      saveState();
+      
+      // If playing, update interval on the fly without restarting
+      if (isPlaying && oldBPM !== tempoBPM) {
+        const now = Date.now();
+        const elapsed = now - lastStepTime;
+        const oldInterval = bpmToInterval(oldBPM);
+        const newInterval = bpmToInterval(tempoBPM);
+        
+        // Calculate remaining time in current step (proportional to new tempo)
+        const remainingRatio = 1 - (elapsed / oldInterval);
+        const remainingTime = newInterval * remainingRatio;
+        
+        // Clear old interval and any pending timeout
+        clearInterval(intervalId);
+        if (timeoutId) clearTimeout(timeoutId);
+        
+        // If there's time remaining, wait for it, then continue with new interval
+        if (remainingTime > 0 && remainingTime < newInterval * 2) {
+          timeoutId = setTimeout(() => {
+            step();
+            lastStepTime = Date.now();
+            intervalId = setInterval(() => {
+              step();
+              lastStepTime = Date.now();
+            }, newInterval);
+            timeoutId = null;
+          }, remainingTime);
+        } else {
+          // If we're past due or too far ahead, step immediately and start new interval
+          step();
+          lastStepTime = Date.now();
+          intervalId = setInterval(() => {
+            step();
+            lastStepTime = Date.now();
+          }, newInterval);
+        }
+      }
+    }
+    
+    function updatePitch(semitones) {
+      pitchSemitones = Math.max(-12, Math.min(12, semitones)); // Clamp between -12 to +12 semitones
+      const displayValue = pitchSemitones >= 0 ? '+' + Math.round(pitchSemitones) : Math.round(pitchSemitones);
+      document.getElementById('pitch-value').textContent = displayValue;
+      updateKnobRotation(pitchSemitones, 'pitch-indicator', -12, 12);
+      saveState();
+    }
+    
+    function updateReverb(amount) {
+      reverbAmount = Math.max(0, Math.min(100, amount)); // Clamp between 0-100%
+      document.getElementById('reverb-value').textContent = Math.round(reverbAmount) + '%';
+      updateKnobRotation(reverbAmount, 'reverb-indicator', 0, 100);
+      // Update reverb wet amount (0 to 1)
+      reverb.wet.value = reverbAmount / 100;
+      saveState();
+    }
+    
+    function updateKnobRotation(value, indicatorId, min, max) {
+      // Map value to rotation (-135deg to 135deg)
+      const rotation = ((value - min) / (max - min)) * 270 - 135;
+      document.getElementById(indicatorId).style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+    }
+
+    // 1. SEQUENCER UI
+    // Drum sequencer: stack three rows in a single grid for one-row simplified look
+    const drumSeqDiv = document.getElementById('drum-seq');
+    // visually, 16 steps, each subdivided clickable for K/S/H (kick,snare,hat) vertically
+    drumSeqDiv.style.display = 'grid';
+    drumSeqDiv.style.gridTemplateColumns = `repeat(${N_STEPS}, 1fr)`;
+    drumSeqDiv.style.gridTemplateRows = 'repeat(1, 1fr)';
+    drumSeqDiv.style.gap = '7px';
+    drumSeqDiv.innerHTML = '';
+    // For each cell, we stack up clickable drum layers
+    for(let i=0; i<N_STEPS; i++){
+      let cell = document.createElement('div');
+      cell.className = 'beat';
+      // New: Use clicking individual circles for each drum sound
+      cell.title = `Step ${i+1}: Click circle for K/S/H`;
+      cell.tabIndex = 0;
+      cell.dataset.i = i;
+      cell.addEventListener('pointerdown', e => {
+        // Only toggle when directly clicking a drum circle
+        let span = e.target;
+        if (span.tagName === 'SPAN') {
+          let drumIdx = Array.from(span.parentElement.children).indexOf(span);
+          if (drumIdx >= 0 && drumIdx <= 2) {
+            drumGrid[i][drumIdx] = !drumGrid[i][drumIdx];
+            renderDrumSeq(); // rerender ui
+            saveState();
+            e.preventDefault();
+          }
+        }
+      });
+      cell.addEventListener('contextmenu', e => e.preventDefault()); // block menu
+      drumSeqDiv.appendChild(cell);
+    }
+    function renderDrumSeq(){
+      drumSeqDiv.querySelectorAll('.beat').forEach((cell, i) => {
+        let [k,s,h] = drumGrid[i];
+        cell.className = 'beat' + ((k||s||h)?' on':'');
+        if(currentStep === i && isPlaying) cell.classList.add('active');
+        else cell.classList.remove('active');
+        // show indicator dots for each drum
+        cell.innerHTML = `
+          <span class="drum-dot kick ${k ? 'active' : ''}"></span>
+          <span class="drum-dot snare ${s ? 'active' : ''}"></span>
+          <span class="drum-dot hat ${h ? 'active' : ''}"></span>
+        `;
+      });
+    }
+    renderDrumSeq();
+
+    // Piano roll
+    const pianoDiv = document.getElementById('piano-roll');
+    pianoDiv.innerHTML = '';
+    pianoDiv.style.gridTemplateRows = `repeat(8, 1fr)`;
+    pianoDiv.style.gridTemplateColumns = `repeat(16, 1fr)`;
+    let isDragging = false;
+    for (let row=0; row<8; row++) {
+      for(let col=0; col<N_STEPS; col++){
+        let cell = document.createElement('div');
+        cell.className = 'note-cell';
+        cell.tabIndex = 0;
+        cell.dataset.row = row;
+        cell.dataset.col = col;
+        cell.title = `(${NOTES[row]}) @ ${col+1}`;
+        cell.addEventListener('click', e => {
+          // Allow multiple notes in same column (chords)
+          notesGrid[currentSynthVoice][row][col] = !notesGrid[currentSynthVoice][row][col];
+          renderPiano();
+          saveState();
+        });
+        // Support drag to add multiple notes
+        // cell.addEventListener('mousedown', e => {
+        //   isDragging = true;
+        //   notesGrid[currentSynthVoice][row][col] = !notesGrid[currentSynthVoice][row][col];
+        //   renderPiano();
+        //   saveState();
+        // });
+        // cell.addEventListener('mouseenter', e => {
+        //   if (isDragging) {
+        //     notesGrid[currentSynthVoice][row][col] = true;
+        //     renderPiano();
+        //     saveState();
+        //   }
+        // });
+        pianoDiv.appendChild(cell);
+      }
+    }
+    document.addEventListener('mouseup', () => { isDragging = false; });
+    
+    // Synth voice tabs
+    document.querySelectorAll('.synth-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.synth-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentSynthVoice = parseInt(tab.dataset.voice);
+        renderPiano();
+        saveState();
+      });
+    });
+    
+    function renderPiano(){
+      pianoDiv.querySelectorAll('.note-cell').forEach((cell, idx) => {
+        let row = Math.floor(idx/N_STEPS), col = idx%N_STEPS;
+        let isOn = notesGrid[currentSynthVoice][row][col];
+        cell.className = 'note-cell' + (isOn?' on':'');
+        if(currentStep === col && isPlaying) cell.classList.add('active');
+        else cell.classList.remove('active');
+      });
+    }
+    renderPiano();
+    
+    // Tempo knob control
+    const tempoKnob = document.getElementById('tempo-knob');
+    let isDraggingTempo = false;
+    let startY = 0;
+    let startBPM = 0;
+    
+    tempoKnob.addEventListener('mousedown', (e) => {
+      isDraggingTempo = true;
+      startY = e.clientY;
+      startBPM = tempoBPM;
+      e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+      if (isDraggingTempo) {
+        const deltaY = startY - e.clientY; // Negative delta = faster
+        const sensitivity = 0.5; // BPM per pixel
+        const newBPM = startBPM + (deltaY * sensitivity);
+        updateTempo(newBPM);
+      }
+    });
+    
+    document.addEventListener('mouseup', () => {
+      isDraggingTempo = false;
+    });
+    
+    // Mouse wheel support for tempo
+    tempoKnob.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -2 : 2; // Scroll down = slower, up = faster
+      updateTempo(tempoBPM + delta);
+    });
+    
+    // Pitch knob control
+    const pitchKnob = document.getElementById('pitch-knob');
+    let isDraggingPitch = false;
+    let startPitchY = 0;
+    let startPitch = 0;
+    
+    pitchKnob.addEventListener('mousedown', (e) => {
+      isDraggingPitch = true;
+      startPitchY = e.clientY;
+      startPitch = pitchSemitones;
+      e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+      if (isDraggingPitch) {
+        const deltaY = startPitchY - e.clientY; // Negative delta = higher pitch
+        const sensitivity = 0.1; // Semitones per pixel
+        const newPitch = startPitch + (deltaY * sensitivity);
+        updatePitch(newPitch);
+      }
+    });
+    
+    document.addEventListener('mouseup', () => {
+      isDraggingPitch = false;
+    });
+    
+    // Mouse wheel support for pitch
+    pitchKnob.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.5 : 0.5; // Scroll down = lower, up = higher
+      updatePitch(pitchSemitones + delta);
+    });
+    
+    // Apply loaded state to UI
+    function applyLoadedState() {
+      // Update tempo display and knob
+      document.getElementById('tempo-value').textContent = Math.round(tempoBPM) + ' BPM';
+      updateKnobRotation(tempoBPM, 'tempo-indicator', 40, 200);
+      
+      // Update pitch display and knob
+      const pitchDisplayValue = pitchSemitones >= 0 ? '+' + Math.round(pitchSemitones) : Math.round(pitchSemitones);
+      document.getElementById('pitch-value').textContent = pitchDisplayValue;
+      updateKnobRotation(pitchSemitones, 'pitch-indicator', -12, 12);
+      
+      // Update reverb display and knob
+      document.getElementById('reverb-value').textContent = Math.round(reverbAmount) + '%';
+      updateKnobRotation(reverbAmount, 'reverb-indicator', 0, 100);
+      reverb.wet.value = reverbAmount / 100;
+      
+      // Update synth voice tab
+      document.querySelectorAll('.synth-tab').forEach(tab => {
+        if (parseInt(tab.dataset.voice) === currentSynthVoice) {
+          tab.classList.add('active');
+        } else {
+          tab.classList.remove('active');
+        }
+      });
+      
+      // Re-render grids
+      renderDrumSeq();
+      renderPiano();
+    }
+    
+    // Reverb knob control
+    const reverbKnob = document.getElementById('reverb-knob');
+    let isDraggingReverb = false;
+    let startReverbY = 0;
+    let startReverb = 0;
+    
+    reverbKnob.addEventListener('mousedown', (e) => {
+      isDraggingReverb = true;
+      startReverbY = e.clientY;
+      startReverb = reverbAmount;
+      e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+      if (isDraggingReverb) {
+        const deltaY = startReverbY - e.clientY; // Negative delta = more reverb
+        const sensitivity = 0.5; // Percent per pixel
+        const newReverb = startReverb + (deltaY * sensitivity);
+        updateReverb(newReverb);
+      }
+    });
+    
+    document.addEventListener('mouseup', () => {
+      isDraggingReverb = false;
+    });
+    
+    // Mouse wheel support for reverb
+    reverbKnob.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -2 : 2; // Scroll down = less, up = more
+      updateReverb(reverbAmount + delta);
+    });
+    
+    // Initialize knob rotations and apply loaded state
+    applyLoadedState();
+
+    // 2. HANDLE PLAYBACK
+    function step(){
+      // Drums
+      const [k,s,h] = drumGrid[currentStep];
+      if(k) {
+        drums[0].triggerAttackRelease("C1", "8n");
+        pulseStates.kick = 1.0; // Trigger pulse
+      }
+      if(s) {
+        drums[1].triggerAttackRelease("C3", "16n");
+        pulseStates.snare = 1.0;
+      }
+      if(h) {
+        drums[2].triggerAttackRelease("16n");
+        pulseStates.hat = 1.0;
+      }
+      // Piano notes (all voices can play simultaneously)
+      let voiceTriggered = false;
+      const pitchMultiplier = semitonesToMultiplier(pitchSemitones);
+      for(let voice=0; voice<3; voice++){
+        for(let r=0; r<8; r++){
+          if(notesGrid[voice][r][currentStep]){
+            // Apply pitch shift to note frequency
+            const baseFreq = Tone.Frequency(NOTES[r]).toFrequency();
+            let shiftedFreq = baseFreq * pitchMultiplier;
+            // Voice 2 (index 2) plays an octave lower
+            if(voice === 2) {
+              shiftedFreq = shiftedFreq * 0.5; // One octave lower
+            }
+            synths[voice].triggerAttackRelease(shiftedFreq, "8n");
+            voiceTriggered = true;
+          }
+        }
+      }
+      if(voiceTriggered) {
+        pulseStates.voice = 1.0;
+      }
+      // Animate
+      renderDrumSeq();
+      renderPiano();
+      drawWave();
+      currentStep = (currentStep+1)%N_STEPS;
+    }
+
+    function play(){
+      if(isPlaying) return;
+      Tone.start(); // in browser, resume context
+      isPlaying = true;
+      currentStep = 0;
+      lastStepTime = Date.now();
+      intervalId = setInterval(() => {
+        step();
+        lastStepTime = Date.now();
+      }, bpmToInterval(tempoBPM));
+      updatePlayPauseButton();
+    }
+    function stop(){
+      isPlaying = false;
+      if (intervalId) clearInterval(intervalId);
+      if (timeoutId) clearTimeout(timeoutId);
+      intervalId = null;
+      timeoutId = null;
+      renderDrumSeq();
+      renderPiano();
+      updatePlayPauseButton();
+    }
+    
+    function updatePlayPauseButton() {
+      const btn = document.getElementById('play-pause-btn');
+      const icon = document.getElementById('play-pause-icon');
+      if (isPlaying) {
+        btn.classList.add('playing');
+        icon.textContent = '⏸';
+      } else {
+        btn.classList.remove('playing');
+        icon.textContent = '▶';
+      }
+    }
+    // Play/pause button
+    document.getElementById('play-pause-btn').addEventListener('click', () => {
+      if(isPlaying) {
+        stop();
+      } else {
+        play();
+      }
+    });
+    
+    // Click background or press space to start/stop
+    document.body.addEventListener('keydown', e => {
+      if(e.code === 'Space'){
+        isPlaying?stop():play();
+        e.preventDefault();
+      }
+    });
+    document.querySelector('.ram-box').addEventListener('pointerdown', (e) => {
+      // Don't trigger on button clicks
+      if(e.target.closest('.play-pause-btn')) return;
+      if(!isPlaying) play();
+    });
+    
+    // Initialize button state
+    updatePlayPauseButton();
+
+    // 3. OSCILLOSCOPE VISUALIZER
+    const cvs = document.getElementById('viz');
+    const ctx = cvs.getContext('2d');
+    // Audio analyzer node - use frequency domain
+    const analyser = Tone.context.createAnalyser();
+    analyser.fftSize = 2048; // Higher for better frequency resolution
+    analyser.smoothingTimeConstant = 0.8;
+    let bufferLength = analyser.frequencyBinCount;
+    let frequencyData = new Uint8Array(bufferLength);
+    
+    // Track pulse states for visual effects
+    let pulseStates = {
+      kick: 0,
+      snare: 0,
+      hat: 0,
+      voice: 0
+    };
+    
+    // Frequency band ranges (approximate Hz ranges)
+    // Sample rate is typically 44100, so Nyquist is 22050 Hz
+    // bufferLength = 1024, so each bin is ~21.5 Hz
+    const LOW_START = 0;      // 0-200 Hz (kick)
+    const LOW_END = 9;         // ~0-200 Hz
+    const MID_START = 10;      // 200-2000 Hz (snare, voices)
+    const MID_END = 93;        // ~200-2000 Hz
+    const HIGH_START = 94;     // 2000+ Hz (hat)
+    const HIGH_END = bufferLength - 1;
+
+    // Connect synth and drums to analyser
+    // Create a master gain node that routes to both destination and analyser
+    const masterGain = new Tone.Gain();
+    
+    // Route: masterGain -> reverb -> destination
+    // Also route: masterGain -> analyser (for visualization, before reverb)
+    masterGain.connect(reverb);
+    reverb.toDestination();
+    masterGain.connect(analyser);
+    
+    // Connect all synths and drums through master gain
+    synths.forEach(s => {
+      s.connect(masterGain);
+    });
+    drums.forEach(d => {
+      d.connect(masterGain);
+    });
+
+    function drawGrid(){
+      ctx.clearRect(0,0,cvs.width, cvs.height);
+      // faded green grid w/ rounded corners
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(16,0);
+      ctx.arcTo(cvs.width,0, cvs.width,cvs.height, 22);
+      ctx.arcTo(cvs.width,cvs.height, 0, cvs.height, 22);
+      ctx.arcTo(0,cvs.height, 0,0, 22);
+      ctx.arcTo(0,0, cvs.width,0, 22);
+      ctx.closePath();
+      ctx.clip();
+
+      ctx.fillStyle = "#1e3d2f";
+      ctx.fillRect(0,0,cvs.width, cvs.height);
+
+      ctx.globalAlpha = 0.24;
+      // Draw grid lines, vertical for steps
+      ctx.strokeStyle = "#61f6ac";
+      for(let i=0;i<=N_STEPS;i++){
+        let x = Math.round(i*cvs.width/N_STEPS);
+        ctx.beginPath();
+        ctx.moveTo(x,0);
+        ctx.lineTo(x, cvs.height);
+        ctx.stroke();
+      }
+      // Draw horizontal grid, 8 notes
+      for(let y=0;y<=8;y++){
+        let yy = Math.round(y*cvs.height/8);
+        ctx.beginPath();
+        ctx.moveTo(0,yy);
+        ctx.lineTo(cvs.width,yy);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+    // Decay pulse states
+    function updatePulseStates() {
+      const decay = 0.92; // Decay rate per frame
+      pulseStates.kick *= decay;
+      pulseStates.snare *= decay;
+      pulseStates.hat *= decay;
+      pulseStates.voice *= decay;
+    }
+    
+    // Get average amplitude for a frequency range
+    function getBandAmplitude(start, end) {
+      let sum = 0;
+      let count = 0;
+      for(let i = start; i <= end && i < bufferLength; i++) {
+        sum += frequencyData[i];
+        count++;
+      }
+      return count > 0 ? sum / count : 0;
+    }
+    
+    // Create bezier curve points from frequency data
+    function createBezierPoints(bandStart, bandEnd, yOffset, height, pulseMultiplier = 1.0) {
+      const W = cvs.width;
+      const H = cvs.height;
+      const numPoints = 50; // Number of control points for smooth curve
+      const points = [];
+      
+      for(let i = 0; i < numPoints; i++) {
+        const t = i / (numPoints - 1);
+        // Map t to frequency band
+        const freqIndex = Math.floor(bandStart + t * (bandEnd - bandStart));
+        const clampedIndex = Math.min(Math.max(freqIndex, bandStart), bandEnd);
+        const amplitude = frequencyData[clampedIndex] / 255;
+        
+        const x = W * t;
+        // Apply pulse multiplier for visual effect
+        const pulseEffect = 1.0 + (pulseMultiplier * 0.3);
+        const y = yOffset + (H * 0.15) - (amplitude * height * pulseEffect);
+        points.push({x, y});
+      }
+      
+      return points;
+    }
+    
+    // Draw bezier curve through points
+    function drawBezierCurve(points, color, lineWidth, shadowColor, shadowBlur) {
+      if(points.length < 2) return;
+      
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.shadowColor = shadowColor;
+      ctx.shadowBlur = shadowBlur;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      
+      // Create smooth bezier curve
+      for(let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i];
+        const p1 = points[i + 1];
+        const p2 = points[Math.min(i + 2, points.length - 1)];
+        
+        // Control points for bezier
+        const cp1x = p0.x + (p1.x - p0.x) * 0.5;
+        const cp1y = p0.y;
+        const cp2x = p1.x - (p1.x - p0.x) * 0.5;
+        const cp2y = p1.y;
+        
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p1.x, p1.y);
+      }
+      
+      ctx.stroke();
+      
+      // Draw glow effect
+      ctx.globalAlpha = 0.4;
+      ctx.shadowBlur = shadowBlur * 1.5;
+      ctx.lineWidth = lineWidth * 0.6;
+      ctx.stroke();
+      
+      ctx.restore();
+    }
+    
+    function drawWave(){
+      drawGrid();
+      analyser.getByteFrequencyData(frequencyData);
+      updatePulseStates();
+      
+      const W = cvs.width;
+      const H = cvs.height;
+      
+      // Calculate band positions (low at bottom, mid in middle, high at top)
+      const lowY = H * 0.75;  // Bottom third
+      const midY = H * 0.5;   // Middle
+      const highY = H * 0.25; // Top third
+      
+      // Low frequency band (kick) - pulse with kick
+      const lowPoints = createBezierPoints(LOW_START, LOW_END, lowY, H * 0.2, pulseStates.kick);
+      drawBezierCurve(
+        lowPoints,
+        "rgba(0,241,200,0.96)", // Cyan-green for kick
+        3.5,
+        '#00f1c8',
+        18
+      );
+      
+      // Mid frequency band (snare + voices) - pulse with both
+      const midPulse = Math.max(pulseStates.snare, pulseStates.voice);
+      const midPoints = createBezierPoints(MID_START, MID_END, midY, H * 0.25, midPulse);
+      drawBezierCurve(
+        midPoints,
+        "rgba(253,200,0,0.96)", // Yellow for snare/voices
+        3.2,
+        '#fdc800',
+        16
+      );
+      
+      // High frequency band (hat) - pulse with hat
+      const highPoints = createBezierPoints(HIGH_START, HIGH_END, highY, H * 0.15, pulseStates.hat);
+      drawBezierCurve(
+        highPoints,
+        "rgba(255,255,255,0.96)", // White for hat
+        2.8,
+        '#ffffff',
+        14
+      );
+    }
+    function animateViz(){
+      drawWave();
+      requestAnimationFrame(animateViz);
+    }
+    animateViz();
+
+    // Initially draw grid only
+    drawGrid();
+
+    // For accessibility, focus outline/active
+    function focusCell(el){
+      el.classList.add('active');
+      setTimeout(()=>el.classList.remove('active'),200);
+    }
+    drumSeqDiv.querySelectorAll('.beat').forEach(cell=>{
+      cell.addEventListener('keydown',e=>{
+        if(e.key==='Enter'||e.key===' '){
+          cell.dispatchEvent(new PointerEvent('pointerdown', {button: 0}));
+          focusCell(cell);
+        }
+      });
+    });
+    pianoDiv.querySelectorAll('.note-cell').forEach(cell=>{
+      cell.addEventListener('keydown',e=>{
+        if(e.key===' '||e.key==='Enter'){
+          let row=+cell.dataset.row, col=+cell.dataset.col;
+          notesGrid[currentSynthVoice][row][col]=!notesGrid[currentSynthVoice][row][col];
+          renderPiano();
+          saveState();
+          focusCell(cell);
+        }
+      });
+    });
+
+    // Show hint for UX
+    setTimeout(() => {
+      if (!isPlaying) {
+        let l = document.createElement('div');
+        l.className = 'hint-message';
+        l.innerHTML = '<span class="hint-content"><b>Click background or press [Space] to play</b><span class="hint-subtext">Kick/Snare/Hat: Click circles. Piano: click grid.</span></span>';
+        document.querySelector('.ram-box').appendChild(l);
+        setTimeout(()=>l.remove(),2800);
+      }
+    }, 800);
+
+  </script>
+</body>
+</html>
