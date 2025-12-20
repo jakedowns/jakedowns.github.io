@@ -165,6 +165,7 @@
       align-items: center;
       justify-content: center;
       position: relative;
+      flex-wrap: nowrap;
     }
     .beat.on {
       background: var(--beat-on);
@@ -500,13 +501,117 @@
     }
 
     @media (max-width: 650px) {
-      .ram-box { padding: 0.7rem 0.5rem 2rem 0.5rem; max-width: 100vw; }
-      .oscilloscope-wrap { margin-left: -1vw; margin-right: -1vw;}
+      .ram-box { 
+        padding: 1rem 0.75rem 1.5rem 0.75rem; 
+        max-width: 100vw; 
+        margin: 16px auto;
+        gap: 1.5rem;
+      }
+      .oscilloscope-wrap { margin-left: -0.75rem; margin-right: -0.75rem;}
       canvas#viz {height: 110px;}
+      
+      .header-row {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      
+      .ram-mono-label {
+        font-size: 1.2rem;
+      }
+      
+      .play-pause-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 1.1rem;
+      }
+      
+      .controls-row {
+        gap: 1.5rem;
+        flex-wrap: wrap;
+      }
+      
+      .tempo-knob-wrapper, .pitch-knob-wrapper, .reverb-knob-wrapper {
+        width: 70px;
+        height: 70px;
+      }
+      
+      .tempo-knob, .pitch-knob, .reverb-knob {
+        width: 70px;
+        height: 70px;
+      }
+      
+      .tempo-value, .pitch-value, .reverb-value {
+        font-size: 1rem;
+      }
+      
+      .sequencer-grid {
+        height: auto;
+        min-height: 60px;
+      }
+      
+      .beat {
+        flex-direction: column;
+        height: auto;
+        min-height: 60px;
+        gap: 4px;
+        padding: 4px;
+      }
+      
+      .drum-dot {
+        width: 12px;
+        height: 12px;
+        margin: 2px 0;
+      }
+      
+      .piano-roll-grid {
+        grid-template-rows: repeat(8, 24px);
+        height: 192px;
+        gap: 5px;
+      }
+      
+      .note-cell {
+        min-height: 24px;
+      }
     }
     @media (max-width: 420px) {
-      .ram-box { padding: 0.18rem 0.1rem 1rem 0.1rem; }
-      canvas#viz {height: 60px;}
+      .ram-box { 
+        padding: 0.75rem 0.5rem 1rem 0.5rem; 
+        gap: 1rem;
+      }
+      canvas#viz {height: 80px;}
+      
+      .controls-row {
+        gap: 1rem;
+      }
+      
+      .tempo-knob-wrapper, .pitch-knob-wrapper, .reverb-knob-wrapper {
+        width: 60px;
+        height: 60px;
+      }
+      
+      .tempo-knob, .pitch-knob, .reverb-knob {
+        width: 60px;
+        height: 60px;
+      }
+      
+      .tempo-knob-indicator, .pitch-knob-indicator, .reverb-knob-indicator {
+        height: 16px;
+        transform-origin: center 26px;
+      }
+      
+      .sequencer-grid {
+        gap: 5px;
+      }
+      
+      .beat {
+        min-height: 50px;
+        padding: 3px;
+      }
+      
+      .drum-dot {
+        width: 10px;
+        height: 10px;
+      }
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
@@ -868,31 +973,43 @@
     }
     renderPiano();
     
+    // Helper function to get Y coordinate from event (mouse or touch)
+    function getEventY(e) {
+      return e.touches ? e.touches[0].clientY : e.clientY;
+    }
+    
     // Tempo knob control
     const tempoKnob = document.getElementById('tempo-knob');
     let isDraggingTempo = false;
     let startY = 0;
     let startBPM = 0;
     
-    tempoKnob.addEventListener('mousedown', (e) => {
+    function startTempoDrag(e) {
       isDraggingTempo = true;
-      startY = e.clientY;
+      startY = getEventY(e);
       startBPM = tempoBPM;
       e.preventDefault();
-    });
+    }
     
-    document.addEventListener('mousemove', (e) => {
+    function updateTempoDrag(e) {
       if (isDraggingTempo) {
-        const deltaY = startY - e.clientY; // Negative delta = faster
+        const deltaY = startY - getEventY(e); // Negative delta = faster
         const sensitivity = 0.5; // BPM per pixel
         const newBPM = startBPM + (deltaY * sensitivity);
         updateTempo(newBPM);
       }
-    });
+    }
     
-    document.addEventListener('mouseup', () => {
+    function endTempoDrag() {
       isDraggingTempo = false;
-    });
+    }
+    
+    tempoKnob.addEventListener('mousedown', startTempoDrag);
+    tempoKnob.addEventListener('touchstart', startTempoDrag, { passive: false });
+    document.addEventListener('mousemove', updateTempoDrag);
+    document.addEventListener('touchmove', updateTempoDrag, { passive: false });
+    document.addEventListener('mouseup', endTempoDrag);
+    document.addEventListener('touchend', endTempoDrag);
     
     // Mouse wheel support for tempo
     tempoKnob.addEventListener('wheel', (e) => {
@@ -907,25 +1024,32 @@
     let startPitchY = 0;
     let startPitch = 0;
     
-    pitchKnob.addEventListener('mousedown', (e) => {
+    function startPitchDrag(e) {
       isDraggingPitch = true;
-      startPitchY = e.clientY;
+      startPitchY = getEventY(e);
       startPitch = pitchSemitones;
       e.preventDefault();
-    });
+    }
     
-    document.addEventListener('mousemove', (e) => {
+    function updatePitchDrag(e) {
       if (isDraggingPitch) {
-        const deltaY = startPitchY - e.clientY; // Negative delta = higher pitch
+        const deltaY = startPitchY - getEventY(e); // Negative delta = higher pitch
         const sensitivity = 0.1; // Semitones per pixel
         const newPitch = startPitch + (deltaY * sensitivity);
         updatePitch(newPitch);
       }
-    });
+    }
     
-    document.addEventListener('mouseup', () => {
+    function endPitchDrag() {
       isDraggingPitch = false;
-    });
+    }
+    
+    pitchKnob.addEventListener('mousedown', startPitchDrag);
+    pitchKnob.addEventListener('touchstart', startPitchDrag, { passive: false });
+    document.addEventListener('mousemove', updatePitchDrag);
+    document.addEventListener('touchmove', updatePitchDrag, { passive: false });
+    document.addEventListener('mouseup', endPitchDrag);
+    document.addEventListener('touchend', endPitchDrag);
     
     // Mouse wheel support for pitch
     pitchKnob.addEventListener('wheel', (e) => {
@@ -970,25 +1094,32 @@
     let startReverbY = 0;
     let startReverb = 0;
     
-    reverbKnob.addEventListener('mousedown', (e) => {
+    function startReverbDrag(e) {
       isDraggingReverb = true;
-      startReverbY = e.clientY;
+      startReverbY = getEventY(e);
       startReverb = reverbAmount;
       e.preventDefault();
-    });
+    }
     
-    document.addEventListener('mousemove', (e) => {
+    function updateReverbDrag(e) {
       if (isDraggingReverb) {
-        const deltaY = startReverbY - e.clientY; // Negative delta = more reverb
+        const deltaY = startReverbY - getEventY(e); // Negative delta = more reverb
         const sensitivity = 0.5; // Percent per pixel
         const newReverb = startReverb + (deltaY * sensitivity);
         updateReverb(newReverb);
       }
-    });
+    }
     
-    document.addEventListener('mouseup', () => {
+    function endReverbDrag() {
       isDraggingReverb = false;
-    });
+    }
+    
+    reverbKnob.addEventListener('mousedown', startReverbDrag);
+    reverbKnob.addEventListener('touchstart', startReverbDrag, { passive: false });
+    document.addEventListener('mousemove', updateReverbDrag);
+    document.addEventListener('touchmove', updateReverbDrag, { passive: false });
+    document.addEventListener('mouseup', endReverbDrag);
+    document.addEventListener('touchend', endReverbDrag);
     
     // Mouse wheel support for reverb
     reverbKnob.addEventListener('wheel', (e) => {
