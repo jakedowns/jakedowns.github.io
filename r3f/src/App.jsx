@@ -469,10 +469,32 @@ function CameraToggleButton({ mode, setMode, style = {} }) {
 
 export default function App() {
   // Scene-wide zoom state
-  const [zoom, setZoom] = useState(1)
+  const [zoom, setZoom] = useState(0.5)
   // Camera mode state: 'isometric' | 'follow'
   const [cameraMode, setCameraMode] = useState('isometric')
   const keyboardBoxRef = useRef()
+
+  // f key global shortcut: toggle camera follow mode
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      // Ignore if focus is on an input field or textarea
+      if (
+        event.repeat ||
+        event.target.tagName === 'INPUT' ||
+        event.target.tagName === 'TEXTAREA' ||
+        event.target.isContentEditable
+      ) {
+        return
+      }
+      if (event.key && event.key.toLowerCase() === 'f') {
+        setCameraMode((prev) => (prev === "isometric" ? "follow" : "isometric"))
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, []) // only on mount
 
   // Don't allow user pan/zoom in follow camera mode
   const panZoomEnabled = cameraMode === 'isometric'
