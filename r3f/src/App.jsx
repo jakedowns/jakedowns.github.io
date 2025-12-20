@@ -1,21 +1,22 @@
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, extend } from '@react-three/fiber'
 import { Stars, Text, Float, OrthographicCamera } from '@react-three/drei'
-import { useRef, useState, useEffect, useMemo } from 'react'
+import { useRef, useState, useEffect, useMemo, createContext, useContext } from 'react'
 import * as THREE from 'three'
 
-// KeyboardControllerBox: like Box, but position can be moved with keyboard (arrow or WASD)
+// KeyboardControllerBox: like Box, but position can be moved with keyboard (arrow or WASD) RELATIVE TO CAMERA
 function KeyboardControllerBox({ initialPosition = [2, 0.5, 0], color, ...props }) {
   const meshRef = useRef()
   const [hovered, setHovered] = useState(false)
   const [clicked, setClicked] = useState(false)
   const [position, setPosition] = useState(initialPosition)
   const keysDownRef = useRef({})
+  const { camera } = useThree()
 
   useEffect(() => {
-    const handleKeyDown = (event) => {
+    const handleKeyDown = event => {
       keysDownRef.current[event.key.toLowerCase()] = true
     }
-    const handleKeyUp = (event) => {
+    const handleKeyUp = event => {
       keysDownRef.current[event.key.toLowerCase()] = false
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -29,26 +30,41 @@ function KeyboardControllerBox({ initialPosition = [2, 0.5, 0], color, ...props 
   useFrame(() => {
     let [x, y, z] = position
     const step = 0.15
-    let next = [x, y, z]
-    let moved = false
+    let moveX = 0
+    let moveZ = 0
     const keysDown = keysDownRef.current
+
+    // Move screen relative (camera local X/Z axes), not world X/Z axes
     if (keysDown['arrowleft'] || keysDown['a']) {
-      next[0] -= step
-      moved = true
+      moveX -= step
     }
     if (keysDown['arrowright'] || keysDown['d']) {
-      next[0] += step
-      moved = true
+      moveX += step
     }
     if (keysDown['arrowup'] || keysDown['w']) {
-      next[2] -= step
-      moved = true
+      moveZ += step
     }
     if (keysDown['arrowdown'] || keysDown['s']) {
-      next[2] += step
-      moved = true
+      moveZ -= step
     }
-    if (moved) {
+    if (moveX !== 0 || moveZ !== 0) {
+      // Camera direction vectors
+      // We want movement in the camera local right/forward directions on X/Z plane
+      // Get camera's right and forward vectors projected onto XZ plane
+      const camQuat = camera.quaternion
+      const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(camQuat) // forward dir
+      camForward.y = 0
+      camForward.normalize()
+
+      const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camQuat)
+      camRight.y = 0
+      camRight.normalize()
+
+      let next = [x, y, z]
+      // moveX: right/left, moveZ: forward/back
+      // Add right and forward scaled vectors appropriately
+      next[0] += camRight.x * moveX + camForward.x * moveZ
+      next[2] += camRight.z * moveX + camForward.z * moveZ
       setPosition(next)
     }
   })
@@ -179,8 +195,6 @@ const ISOMETRIC_CAMERA = {
   far: 100,
 }
 
-// Wrapper for zoom scaling
-import { createContext, useContext } from 'react'
 const ZoomContext = createContext(1)
 
 function Scene() {
@@ -200,7 +214,7 @@ function Scene() {
       
       {/* Example objects */}
       <Box position={[-2, 0.5, 0]} color="#ff6b6b" />
-      <KeyboardControllerBox initialPosition={[2, 0.5, 0]} color="#4ecdc4" />
+      <KeyboardControllerBox initialPosition={[-5, 0.5, 5]} color="#4ecdc4" />
 
       {/* Floating text */}
       <AnimatedText />
@@ -214,8 +228,6 @@ function Scene() {
     </group>
   )
 }
-
-import { extend, useThree } from '@react-three/fiber'
 
 // Pan-only controls with manual zoom controls for isometric camera (scale the scene)
 function PanZoomControls({ zoom, setZoom, zoomMin=0.4, zoomMax=2.0, zoomStep=0.08 }) {
