@@ -49,6 +49,33 @@
       align-items: center;
       margin-bottom: -1rem;
     }
+
+    .reset-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 2px solid #243d31;
+      color: var(--label);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      transition: all 0.2s;
+      box-shadow: 0 2px 8px #000a, inset 0 1px 2px #0004;
+      user-select: none;
+      margin-left: 8px;
+    }
+
+    .reset-btn:hover {
+      border-color: #ff9980;
+      box-shadow: 0 0 12px #ff9955;
+    }
+
+    .reset-btn:active {
+      transform: scale(0.95);
+    }
     
     .ram-mono-label {
       font-family: inherit;
@@ -519,7 +546,13 @@
         font-size: 1.2rem;
       }
       
-      .play-pause-btn {
+      .reset-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 1.1rem;
+      }
+
+      .reset-btn, .play-pause-btn {
         width: 40px;
         height: 40px;
         font-size: 1.1rem;
@@ -629,9 +662,14 @@
   <div class="ram-box">
     <div class="header-row">
       <div class="ram-mono-label">synth time</div>
-      <button class="play-pause-btn" id="play-pause-btn" aria-label="Play/Pause">
-        <span id="play-pause-icon">▶</span>
-      </button>
+      <div style="display: flex; gap: 8px;">
+        <button class="reset-btn" id="reset-btn" aria-label="Reset">
+          ⟲
+        </button>
+        <button class="play-pause-btn" id="play-pause-btn" aria-label="Play/Pause">
+          <span id="play-pause-icon">▶</span>
+        </button>
+      </div>
     </div>
     <div class="oscilloscope-wrap">
       <canvas id="viz" width="590" height="176"></canvas>
@@ -735,6 +773,9 @@
     let tempoBPM = 100; // BPM (beats per minute)
     let pitchSemitones = 0; // Pitch in semitones (-12 to +12)
     let reverbAmount = 0; // Reverb wet amount (0-100%)
+
+    // LocalStorage persistence
+    const STORAGE_KEY = 'synth-time-state';
     
     // Load state from localStorage before initializing UI
     const stateLoaded = loadState();
@@ -749,8 +790,7 @@
       return Math.pow(2, semitones / 12);
     }
     
-    // LocalStorage persistence
-    const STORAGE_KEY = 'synth-time-state';
+    
     
     function saveState() {
       try {
@@ -773,6 +813,7 @@
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
           const state = JSON.parse(saved);
+          console.log('loading state', state)
           if (state.drumGrid) drumGrid = state.drumGrid;
           if (state.notesGrid) {
             notesGrid = state.notesGrid;
@@ -854,6 +895,25 @@
       updateKnobRotation(reverbAmount, 'reverb-indicator', 0, 100);
       // Update reverb wet amount (0 to 1)
       reverb.wet.value = reverbAmount / 100;
+      saveState();
+    }
+
+    function resetGrids() {
+      // Reset drum grid to all false
+      drumGrid = Array(N_STEPS).fill().map(() => [false, false, false]);
+
+      // Reset notes grid to all false for all voices
+      notesGrid = [
+        Array(8).fill().map(() => Array(N_STEPS).fill(false)), // Voice 1
+        Array(8).fill().map(() => Array(N_STEPS).fill(false)), // Voice 2
+        Array(8).fill().map(() => Array(N_STEPS).fill(false)), // Voice 3 (Deep)
+      ];
+
+      // Re-render UI
+      renderDrumSeq();
+      renderPiano();
+
+      // Save the cleared state
       saveState();
     }
     
@@ -1216,6 +1276,11 @@
       } else {
         play();
       }
+    });
+
+    // Reset button
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      resetGrids();
     });
     
     // Click background or press space to start/stop
