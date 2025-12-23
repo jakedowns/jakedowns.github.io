@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Interactive Hopf Fibration</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #111; color: #fff; font-family: sans-serif; }
+        #info { position: absolute; top: 10px; width: 100%; text-align: center; pointer-events: none; z-index: 10; }
+        a { color: #00d0ff; pointer-events: auto; }
+    </style>
+</head>
+<body>
+
+<div id="info">
+    <h3>Hopf Fibration Visualization</h3>
+    <p>Use controls to adjust fibers | Left Click: Rotate | Right Click: Pan</p>
+</div>
+
+<script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+
+    // --- Configuration ---
+    const params = {
+        fiberCount: 200,
+        thickness: 0.08,
+        tubeSegments: 64,
+        opacity: 0.8,
+        scale: 1.5,
+        rotationSpeed: 0.002
+    };
+
+    // --- Scene Setup ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+    scene.fog = new THREE.Fog(0x111111, 5, 25);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 0, 8);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    // Group to hold all fibers
+    let fiberGroup = new THREE.Group();
+    scene.add(fiberGroup);
+
+    // --- Math Functions ---
+
+    /**
+     * Maps a point (theta, phi) on S2 to a circle in S3, 
+     * then stereographically projects it to R3.
+     */
+    function getHopfFiberPoints(theta, phi, segments) {
+        const points = [];
+        // Iterate along the fiber (xi from 0 to 2PI)
+        for (let i = 0; i <= segments; i++) {
+            const xi = (i / segments) * 2 * Math.PI;
+            
+            // 1. Inverse Hopf Map: S2 -> S3
+            // A fiber corresponds to a fixed (theta, phi) on the base S2.
+            // We parameterize the fiber using xi.
+            // x1 = cos(theta/2) * cos(xi)
+            // x2 = cos(theta/2) * sin(xi)
+            // x3 = sin(theta/2) * cos(xi + phi)
+            // x4 = sin(theta/2) * sin(xi + phi)
+            
+            const eta = theta / 2;
+            const x1 = Math.cos(eta) * Math.cos(xi);
+            const x2 = Math.cos(eta) * Math.sin(xi);
+            const x3 = Math.sin(eta) * Math.cos(xi + phi);
+            const x4 = Math.sin(eta) * Math.sin(xi + phi);
+
+            // 2. Stereographic Projection: S3 -> R3
+            // Project from the "North Pole" (0,0,0,1) of S3 onto R3.
+            // Denominator: 1 - x4 (standard projection)
+            const denom = 1 - x4;
+            
+            // Avoid division by zero (infinite projection)
+            if (Math.abs(denom) < 0.001) continue;
+
+            const x = x1 / denom;
+            const y = x2 / denom;
+            const z = x3 / denom;
+
+            points.push(new THREE.Vector3(x, y, z).multiplyScalar(params.scale));
+        }
+        return points;
+    }
+
+    /**
+     * Generates fibers distributed evenly over the base sphere (S2).
+     */
+    function generateFibers() {
+        // Clear existing
+        while(fiberGroup.children.length > 0){ 
+            const obj = fiberGroup.children[0];
+            obj.geometry.dispose();
+            obj.material.dispose();
+            fiberGroup.remove(obj); 
+        }
+
+        // Use Fibonacci Sphere algorithm to distribute starting points on S2 evenly
+        const phi_golden = Math.PI * (3 - Math.sqrt(5)); // Golden angle
+
+        for (let i = 0; i < params.fiberCount; i++) {
+            const y = 1 - (i / (params.fiberCount - 1)) * 2; // y goes from 1 to -1
+            const radius = Math.sqrt(1 - y * y);
+            const theta_fib = phi_golden * i; // Golden angle increment
+
+            const x_s2 = Math.cos(theta_fib) * radius;
+            const z_s2 = Math.sin(theta_fib) * radius;
+
+            // Convert Cartesian S2 point (x, y, z) to Spherical (theta, phi)
+            // theta in [0, PI], phi in [0, 2PI]
+            const theta = Math.acos(y); 
+            const phi = Math.atan2(z_s2, x_s2);
+
+            // Generate the path for this fiber
+            const pathPoints = getHopfFiberPoints(theta, phi, params.tubeSegments);
+            const curve = new THREE.CatmullRomCurve3(pathPoints);
+            curve.closed = true;
+
+            // Geometry
+            const geometry = new THREE.TubeGeometry(curve, params.tubeSegments, params.thickness, 4, true);
+
+            // Color based on the fiber's position (phi angle) gives the rainbow effect
+            const color = new THREE.Color().setHSL(phi / (2 * Math.PI), 1.0, 0.5);
+
+            // Material
+            const material = new THREE.MeshPhysicalMaterial({
+                color: color,
+                metalness: 0.1,
+                roughness: 0.2,
+                clearcoat: 1.0,
+                transparent: true,
+                opacity: params.opacity,
+                side: THREE.DoubleSide
+            });
+
+            const mesh = new THREE.Mesh(geometry, material);
+            fiberGroup.add(mesh);
+        }
+    }
+
+    // --- GUI Setup ---
+    const gui = new GUI();
+    gui.add(params, 'fiberCount', 10, 500, 1).name('Fiber Count').onFinishChange(generateFibers);
+    gui.add(params, 'thickness', 0.01, 0.2).name('Thickness').onChange(generateFibers);
+    gui.add(params, 'opacity', 0.1, 1.0).name('Opacity').onChange(() => {
+        fiberGroup.children.forEach(c => c.material.opacity = params.opacity);
+    });
+    gui.add(params, 'rotationSpeed', 0.0, 0.02).name('Auto Rotate');
+
+    // --- Lighting ---
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+    
+    const pointLight = new THREE.PointLight(0xffffff, 1);
+    pointLight.position.set(10, 10, 10);
+    scene.add(pointLight);
+    
+    const pointLight2 = new THREE.PointLight(0xffffff, 0.5);
+    pointLight2.position.set(-10, -10, -5);
+    scene.add(pointLight2);
+
+    // --- Init ---
+    generateFibers();
+
+    // --- Loop ---
+    function animate() {
+        requestAnimationFrame(animate);
+        
+        controls.update();
+        
+        // Simple rotation of the whole bundle
+        fiberGroup.rotation.y += params.rotationSpeed;
+        fiberGroup.rotation.z += params.rotationSpeed * 0.5;
+
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    // --- Resize ---
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+</script>
+</body>
+</html>
