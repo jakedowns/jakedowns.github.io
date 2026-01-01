@@ -66,7 +66,7 @@ function draw() {
   }
 
   // Update and display hexagons
-  for (let i = hexagons.length - 1; i >= 0; i--) {
+  for (let i = 0; i < hexagons.length; i++) {
     hexagons[i].grow();
     hexagons[i].display();
 
