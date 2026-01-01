@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wobbly Blobs</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #3e5282;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    let blobs = [];
+    let spawnTimer = 0;
+    let spawnInterval = 60;
+
+```
+class Blob {
+  constructor(x, y, r) {
+    this.x = x;
+    this.y = y;
+    this.baseRadius = r;
+    this.radius = r;
+    this.speed = random(0.5, 1.5);
+    this.wobbleSpeed = random(0.02, 0.05);
+    this.wobbleAmount = random(5, 15);
+    this.noiseOffset = random(1000);
+    this.timeOffset = random(1000);
+    this.vertices = [];
+    this.numVertices = 20;
+    
+    for (let i = 0; i < this.numVertices; i++) {
+      this.vertices.push({
+        offset: random(-5, 5)
+      });
+    }
+  }
+  
+  update() {
+    this.y -= this.speed;
+    this.x += noise(this.noiseOffset + frameCount * 0.01) * 2 - 1;
+    this.noiseOffset += 0.01;
+  }
+  
+  display() {
+    push();
+    fill(245, 242, 235);
+    stroke(200, 205, 220);
+    strokeWeight(2);
+    
+    beginShape();
+    for (let i = 0; i < this.numVertices; i++) {
+      let angle = map(i, 0, this.numVertices, 0, TWO_PI);
+      let wobble = sin(frameCount * this.wobbleSpeed + this.timeOffset + i) * 3;
+      let r = this.baseRadius + wobble + this.vertices[i].offset;
+      let x = this.x + cos(angle) * r;
+      let y = this.y + sin(angle) * r;
+      curveVertex(x, y);
+    }
+    
+    let angle = 0;
+    let wobble = sin(frameCount * this.wobbleSpeed + this.timeOffset) * 3;
+    let r = this.baseRadius + wobble + this.vertices[0].offset;
+    curveVertex(this.x + cos(angle) * r, this.y + sin(angle) * r);
+    
+    angle = map(1, 0, this.numVertices, 0, TWO_PI);
+    wobble = sin(frameCount * this.wobbleSpeed + this.timeOffset + 1) * 3;
+    r = this.baseRadius + wobble + this.vertices[1].offset;
+    curveVertex(this.x + cos(angle) * r, this.y + sin(angle) * r);
+    
+    endShape(CLOSE);
+    pop();
+  }
+  
+  isOffScreen() {
+    return this.y + this.baseRadius < 0;
+  }
+  
+  overlaps(other) {
+    let d = dist(this.x, this.y, other.x, other.y);
+    return d < (this.baseRadius + other.baseRadius + 10);
+  }
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+}
+
+function draw() {
+  background(62, 82, 130);
+  
+  spawnTimer++;
+  if (spawnTimer >= spawnInterval) {
+    spawnBlob();
+    spawnTimer = 0;
+    spawnInterval = random(30, 80);
+  }
+  
+  for (let i = blobs.length - 1; i >= 0; i--) {
+    blobs[i].update();
+    blobs[i].display();
+    
+    if (blobs[i].isOffScreen()) {
+      blobs.splice(i, 1);
+    }
+  }
+}
+
+function spawnBlob() {
+  let attempts = 0;
+  let maxAttempts = 50;
+  let newBlob;
+  let validPosition = false;
+  
+  while (!validPosition && attempts < maxAttempts) {
+    let r = random(30, 100);
+    let x = random(r + 20, width - r - 20);
+    let y = height + r;
+    
+    newBlob = new Blob(x, y, r);
+    validPosition = true;
+    
+    for (let blob of blobs) {
+      if (newBlob.overlaps(blob)) {
+        validPosition = false;
+        break;
+      }
+    }
+    
+    attempts++;
+  }
+  
+  if (validPosition) {
+    blobs.push(newBlob);
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+```
+
+  </script>
+</body>
+</html>
