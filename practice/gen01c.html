@@ -10,7 +10,7 @@
 <script>
 let hexagons = [];
 const hexColors = ['#000000', '#0000FF'];
-const growthRate = 2;
+const growthRate = 1.5;
 const rotationSpeed = 0.01;
 
 class Hexagon {
@@ -33,9 +33,9 @@ class Hexagon {
     push();
     translate(width / 2, height / 2);
     rotate(this.rotation);
-    noFill();
+    //noFill();
     stroke(hexColors[this.colorIndex]);
-    strokeWeight(2);
+    strokeWeight(0);
     beginShape();
     for (let i = 0; i < 6; i++) {
       let angle = TWO_PI / 6 * i;
@@ -54,7 +54,7 @@ function setup() {
 }
 
 function draw() {
-  background(30);
+  background(0);
 
   // Add a new hexagon if the latest one has grown sufficiently
   if (hexagons.length === 0 || hexagons[hexagons.length - 1].size > 20) {
