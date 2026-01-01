@@ -55,7 +55,7 @@ class Hexagon {
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
-  hexagons.push(new Hexagon(10, 0));
+  hexagons.push(new Hexagon(1, 0));
 }
 
 function draw() {
@@ -66,7 +66,7 @@ function draw() {
     let newColorIndex = (hexagons.length > 0) 
       ? (hexagons[hexagons.length - 1].colorIndex + 1) % hexColors.length
       : 0;
-    hexagons.push(new Hexagon(10, newColorIndex));
+    hexagons.push(new Hexagon(1, newColorIndex));
   }
 
   // Update and display hexagons
