@@ -1,1 +1,84 @@
-code
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hexagon Tunnel</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+</head>
+<body>
+<script>
+let hexagons = [];
+const hexColors = ['#000000', '#0000FF'];
+const growthRate = 2;
+const rotationSpeed = 0.01;
+
+class Hexagon {
+  constructor(size, colorIndex) {
+    this.size = size;
+    this.colorIndex = colorIndex;
+    this.rotation = 0;
+  }
+
+  grow() {
+    this.size += growthRate;
+    this.rotation += rotationSpeed;
+  }
+
+  isOffScreen() {
+    return this.size > sqrt(sq(width) + sq(height));
+  }
+
+  display() {
+    push();
+    translate(width / 2, height / 2);
+    rotate(this.rotation);
+    noFill();
+    stroke(hexColors[this.colorIndex]);
+    strokeWeight(2);
+    beginShape();
+    for (let i = 0; i < 6; i++) {
+      let angle = TWO_PI / 6 * i;
+      let x = cos(angle) * this.size;
+      let y = sin(angle) * this.size;
+      vertex(x, y);
+    }
+    endShape(CLOSE);
+    pop();
+  }
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  hexagons.push(new Hexagon(10, 0));
+}
+
+function draw() {
+  background(30);
+
+  // Add a new hexagon if the latest one has grown sufficiently
+  if (hexagons.length === 0 || hexagons[hexagons.length - 1].size > 20) {
+    let newColorIndex = (hexagons.length > 0) 
+      ? (hexagons[hexagons.length - 1].colorIndex + 1) % hexColors.length
+      : 0;
+    hexagons.push(new Hexagon(10, newColorIndex));
+  }
+
+  // Update and display hexagons
+  for (let i = hexagons.length - 1; i >= 0; i--) {
+    hexagons[i].grow();
+    hexagons[i].display();
+
+    // Remove hexagon if it is off the screen
+    if (hexagons[i].isOffScreen()) {
+      hexagons.splice(i, 1);
+    }
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+</script>
+</body>
+</html>
