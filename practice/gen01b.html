@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rotating Hexagons</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #3e5282;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    let hexagons = [];
+    let spawnTimer = 0;
+    let spawnInterval = 60;
+
+class Hexagon {
+  constructor(x, y, r) {
+    this.x = x;
+    this.y = y;
+    this.radius = r;
+    this.speed = random(0.5, 1.5);
+    this.wobbleSpeed = random(0.02, 0.05);
+    this.noiseOffset = random(1000);
+    this.rotation = random(TWO_PI);
+    this.rotationSpeed = random(-0.03, 0.03);
+    if (abs(this.rotationSpeed) < 0.01) {
+      this.rotationSpeed = random(0.01, 0.03) * (random() > 0.5 ? 1 : -1);
+    }
+  }
+  
+  update() {
+    this.y -= this.speed;
+    this.x += noise(this.noiseOffset + frameCount * 0.01) * 2 - 1;
+    this.noiseOffset += 0.01;
+    this.rotation += this.rotationSpeed;
+  }
+  
+  display() {
+    push();
+    translate(this.x, this.y);
+    rotate(this.rotation);
+    
+    fill(245, 242, 235);
+    stroke(200, 205, 220);
+    strokeWeight(0);
+    
+    beginShape();
+    for (let i = 0; i < 6; i++) {
+      let angle = TWO_PI / 6 * i;
+      let x = cos(angle) * this.radius;
+      let y = sin(angle) * this.radius;
+      vertex(x, y);
+    }
+    endShape(CLOSE);
+    
+    pop();
+  }
+  
+  isOffScreen() {
+    return this.y + this.radius < 0;
+  }
+  
+  overlaps(other) {
+    let d = dist(this.x, this.y, other.x, other.y);
+    return d < (this.radius + other.radius + 10);
+  }
+}
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+}
+
+function draw() {
+  background(62, 82, 130);
+  
+  spawnTimer++;
+  if (spawnTimer >= spawnInterval) {
+    spawnHexagon();
+    spawnTimer = 0;
+    spawnInterval = random(30, 80);
+  }
+  
+  for (let i = hexagons.length - 1; i >= 0; i--) {
+    hexagons[i].update();
+    hexagons[i].display();
+    
+    if (hexagons[i].isOffScreen()) {
+      hexagons.splice(i, 1);
+    }
+  }
+}
+
+function spawnHexagon() {
+  let attempts = 0;
+  let maxAttempts = 50;
+  let newHex;
+  let validPosition = false;
+  
+  while (!validPosition && attempts < maxAttempts) {
+    let r = random(30, 100);
+    let x = random(r + 20, width - r - 20);
+    let y = height + r;
+    
+    newHex = new Hexagon(x, y, r);
+    validPosition = true;
+    
+    for (let hex of hexagons) {
+      if (newHex.overlaps(hex)) {
+        validPosition = false;
+        break;
+      }
+    }
+    
+    attempts++;
+  }
+  
+  if (validPosition) {
+    hexagons.push(newHex);
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+  </script>
+</body>
+</html>
