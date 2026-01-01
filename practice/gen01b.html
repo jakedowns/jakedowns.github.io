@@ -16,198 +16,198 @@
       align-items: center;
       background: #3e5282;
     }
+    .slider-container {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
   </style>
 </head>
 <body>
+  <div class="slider-container">
+    <label for="spawnRate">Spawn Rate: <span id="spawnRateValue">60</span></label>
+    <input type="range" id="spawnRate" min="10" max="120" value="60">
+  </div>
   <script>
     let hexagons = [];
     let spawnTimer = 0;
     let spawnInterval = 60;
 
-class Hexagon {
-constructor(x, y, r) {
-this.x = x;
-this.y = y;
-this.radius = r;
-this.vx = random(-1, 1);
-this.vy = random(-2, -0.5);
-this.wobbleSpeed = random(0.02, 0.05);
-this.noiseOffset = random(1000);
-this.rotation = random(TWO_PI);
-this.rotationSpeed = random(-0.03, 0.03);
-if (abs(this.rotationSpeed) < 0.01) {
-this.rotationSpeed = random(0.01, 0.03) * (random() > 0.5 ? 1 : -1);
-}
-}
+    class Hexagon {
+      constructor(x, y, r) {
+        this.x = x;
+        this.y = y;
+        this.radius = r;
+        this.vx = random(-1, 1);
+        this.vy = random(-2, -0.5);
+        this.wobbleSpeed = random(0.02, 0.05);
+        this.noiseOffset = random(1000);
+        this.rotation = random(TWO_PI);
+        this.rotationSpeed = random(-0.03, 0.03);
+        if (abs(this.rotationSpeed) < 0.01) {
+          this.rotationSpeed = random(0.01, 0.03) * (random() > 0.5 ? 1 : -1);
+        }
+      }
 
-update() {
-this.x += this.vx;
-this.y += this.vy;
-this.rotation += this.rotationSpeed;
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.rotation += this.rotationSpeed;
 
+        // Bounce off left and right walls
+        if (this.x - this.radius < 0) {
+          this.x = this.radius;
+          this.vx = abs(this.vx);
+        }
+        if (this.x + this.radius > width) {
+          this.x = width - this.radius;
+          this.vx = -abs(this.vx);
+        }
+      }
 
-// Bounce off left and right walls
-if (this.x - this.radius < 0) {
-  this.x = this.radius;
-  this.vx = abs(this.vx);
-}
-if (this.x + this.radius > width) {
-  this.x = width - this.radius;
-  this.vx = -abs(this.vx);
-}
+      checkCollision(other) {
+        let d = dist(this.x, this.y, other.x, other.y);
+        let minDist = this.radius + other.radius;
 
+        if (d < minDist && d > 0) {
+          // Calculate collision angle
+          let angle = atan2(other.y - this.y, other.x - this.x);
 
-}
+          // Separate hexagons
+          let overlap = minDist - d;
+          let separateX = cos(angle) * overlap / 2;
+          let separateY = sin(angle) * overlap / 2;
 
-checkCollision(other) {
-let d = dist(this.x, this.y, other.x, other.y);
-let minDist = this.radius + other.radius;
+          this.x -= separateX;
+          this.y -= separateY;
+          other.x += separateX;
+          other.y += separateY;
 
+          // Calculate new velocities (elastic collision)
+          let nx = cos(angle);
+          let ny = sin(angle);
 
-if (d < minDist && d > 0) {
-  // Calculate collision angle
-  let angle = atan2(other.y - this.y, other.x - this.x);
-  
-  // Separate hexagons
-  let overlap = minDist - d;
-  let separateX = cos(angle) * overlap / 2;
-  let separateY = sin(angle) * overlap / 2;
-  
-  this.x -= separateX;
-  this.y -= separateY;
-  other.x += separateX;
-  other.y += separateY;
-  
-  // Calculate new velocities (elastic collision)
-  let nx = cos(angle);
-  let ny = sin(angle);
-  
-  let relativeVelX = this.vx - other.vx;
-  let relativeVelY = this.vy - other.vy;
-  let relativeVel = relativeVelX * nx + relativeVelY * ny;
-  
-  if (relativeVel < 0) return;
-  
-  let impulse = 2 * relativeVel / 2;
-  
-  this.vx -= impulse * nx;
-  this.vy -= impulse * ny;
-  other.vx += impulse * nx;
-  other.vy += impulse * ny;
-}
+          let relativeVelX = this.vx - other.vx;
+          let relativeVelY = this.vy - other.vy;
+          let relativeVel = relativeVelX * nx + relativeVelY * ny;
 
+          if (relativeVel < 0) return;
 
-}
+          let impulse = 2 * relativeVel / 2;
 
-display() {
-push();
-translate(this.x, this.y);
-rotate(this.rotation);
+          this.vx -= impulse * nx;
+          this.vy -= impulse * ny;
+          other.vx += impulse * nx;
+          other.vy += impulse * ny;
+        }
+      }
 
+      display() {
+        push();
+        translate(this.x, this.y);
+        rotate(this.rotation);
 
-fill(245, 242, 235);
-stroke(200, 205, 220);
-strokeWeight(0);
+        fill(245, 242, 235);
+        stroke(200, 205, 220);
+        strokeWeight(0);
 
-beginShape();
-for (let i = 0; i < 6; i++) {
-  let angle = TWO_PI / 6 * i;
-  let x = cos(angle) * this.radius;
-  let y = sin(angle) * this.radius;
-  vertex(x, y);
-}
-endShape(CLOSE);
+        beginShape();
+        for (let i = 0; i < 6; i++) {
+          let angle = TWO_PI / 6 * i;
+          let x = cos(angle) * this.radius;
+          let y = sin(angle) * this.radius;
+          vertex(x, y);
+        }
+        endShape(CLOSE);
 
-pop();
+        pop();
+      }
 
+      isOffScreen() {
+        return this.y + this.radius < 0;
+      }
 
-}
+      overlaps(other) {
+        let d = dist(this.x, this.y, other.x, other.y);
+        return d < (this.radius + other.radius + 10);
+      }
+    }
 
-isOffScreen() {
-return this.y + this.radius < 0;
-}
+    function setup() {
+      createCanvas(windowWidth, windowHeight);
+      const spawnRateSlider = document.getElementById('spawnRate');
+      const spawnRateValue = document.getElementById('spawnRateValue');
 
-overlaps(other) {
-let d = dist(this.x, this.y, other.x, other.y);
-return d < (this.radius + other.radius + 10);
-}
-}
+      spawnRateSlider.addEventListener('input', () => {
+        spawnInterval = parseInt(spawnRateSlider.value, 10);
+        spawnRateValue.textContent = spawnInterval;
+      });
+    }
 
-function setup() {
-createCanvas(windowWidth, windowHeight);
-}
+    function draw() {
+      background(62, 82, 130);
 
-function draw() {
-background(62, 82, 130);
+      spawnTimer++;
+      if (spawnTimer >= spawnInterval) {
+        spawnHexagon();
+        spawnTimer = 0;
+      }
 
-spawnTimer++;
-if (spawnTimer >= spawnInterval) {
-spawnHexagon();
-spawnTimer = 0;
-spawnInterval = random(30, 80);
-}
+      // Update all hexagons
+      for (let hex of hexagons) {
+        hex.update();
+      }
 
-// Update all hexagons
-for (let hex of hexagons) {
-hex.update();
-}
+      // Check collisions between all pairs
+      for (let i = 0; i < hexagons.length; i++) {
+        for (let j = i + 1; j < hexagons.length; j++) {
+          hexagons[i].checkCollision(hexagons[j]);
+        }
+      }
 
-// Check collisions between all pairs
-for (let i = 0; i < hexagons.length; i++) {
-for (let j = i + 1; j < hexagons.length; j++) {
-hexagons[i].checkCollision(hexagons[j]);
-}
-}
+      // Display and remove off-screen hexagons
+      for (let i = hexagons.length - 1; i >= 0; i--) {
+        hexagons[i].display();
+        if (hexagons[i].isOffScreen()) {
+          hexagons.splice(i, 1);
+        }
+      }
+    }
 
-// Display and remove off-screen hexagons
-for (let i = hexagons.length - 1; i >= 0; i–) {
-hexagons[i].display();
+    function spawnHexagon() {
+      let attempts = 0;
+      let maxAttempts = 50;
+      let newHex;
+      let validPosition = false;
 
+      while (!validPosition && attempts < maxAttempts) {
+        let r = random(30, 100);
+        let x = random(r + 20, width - r - 20);
+        let y = height + r;
 
-if (hexagons[i].isOffScreen()) {
-  hexagons.splice(i, 1);
-}
+        newHex = new Hexagon(x, y, r);
+        validPosition = true;
 
+        for (let hex of hexagons) {
+          if (newHex.overlaps(hex)) {
+            validPosition = false;
+            break;
+          }
+        }
 
-}
-}
+        attempts++;
+      }
 
-function spawnHexagon() {
-let attempts = 0;
-let maxAttempts = 50;
-let newHex;
-let validPosition = false;
+      if (validPosition) {
+        hexagons.push(newHex);
+      }
+    }
 
-while (!validPosition && attempts < maxAttempts) {
-let r = random(30, 100);
-let x = random(r + 20, width - r - 20);
-let y = height + r;
-
-
-newHex = new Hexagon(x, y, r);
-validPosition = true;
-
-for (let hex of hexagons) {
-  if (newHex.overlaps(hex)) {
-    validPosition = false;
-    break;
-  }
-}
-
-attempts++;
-
-
-}
-
-if (validPosition) {
-hexagons.push(newHex);
-}
-}
-
-function windowResized() {
-resizeCanvas(windowWidth, windowHeight);
-}
-
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+    }
   </script>
 </body>
 </html>
