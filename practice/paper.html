@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Three.js Paper Sheets Scene</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- lil-gui for controls -->
+  <script src="https://cdn.jsdelivr.net/npm/lil-gui@0.19.1/dist/lil-gui.umd.min.js"></script>
+  <!-- Three.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.138.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.138.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.138.0/examples/js/postprocessing/EffectComposer.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.138.0/examples/js/postprocessing/RenderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.138.0/examples/js/postprocessing/ShaderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.138.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.138.0/examples/js/shaders/CopyShader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.138.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 min-h-screen">
+<div class="w-full h-screen" id="three-container"></div>
+<script id="paper-vertex-shader" type="x-shader/x-vertex">
+uniform float time;
+uniform float curlAmount;
+uniform float edgeCurlXAmount;
+uniform float edgeCurlYAmount;
+uniform float cornerCurlAmount;
+uniform float seed;
+
+varying vec2 vUv;
+varying float edgeDist;
+varying float viewDistance;
+
+float hash21(vec2 p) {
+    p = fract(p * vec2(123.34,456.21));
+    p += dot(p, p+45.32);
+    return fract(p.x * p.y);
+}
+
+// Simple noise for subtle variations
+float noise(vec2 p) {
+    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+// Smooth noise interpolation
+float smoothNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+
+    float a = noise(i);
+    float b = noise(i + vec2(1.0, 0.0));
+    float c = noise(i + vec2(0.0, 1.0));
+    float d = noise(i + vec2(1.0, 1.0));
+
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+void main() {
+    vUv = uv;
+
+    // Distance from edges (0 = edge, 1 = center)
+    edgeDist = min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y));
+
+    // Distance from camera for fading
+    viewDistance = length(cameraPosition - (modelMatrix * vec4(position, 1.0)).xyz);
+
+    vec3 newPosition = position;
+
+    // Convert UV to local space coordinates (-1 to 1)
+    vec2 localUV = (vUv - 0.5) * 2.0;
+
+    // Overall sheet warping - low frequency, smooth
+    vec2 warpUV = position.xz * 0.15 + time * 0.05 + seed * 10.0;
+    float overallWarp = smoothNoise(warpUV) * 2.0 - 1.0;
+    newPosition.z += overallWarp * curlAmount * 0.8;
+
+    // X-axis curling (curl around Y axis) - creates cylindrical roll along width
+    if (edgeCurlXAmount > 0.0) {
+        float xCurlFactor = smoothstep(0.0, 1.0, localUV.x * 0.5 + 0.5); // 0 at left edge, 1 at right edge
+        float xCurlAngle = xCurlFactor * edgeCurlXAmount * 3.14159; // 0 to π radians
+        float radius = 0.1; // curl radius
+
+        // Rotate around Y axis
+        float cosA = cos(xCurlAngle);
+        float sinA = sin(xCurlAngle);
+        newPosition.x = position.x * cosA - position.z * sinA;
+        newPosition.z = position.x * sinA + position.z * cosA - radius * (1.0 - cosA);
+    }
+
+    // Y-axis curling (curl around X axis) - creates cylindrical roll along height
+    if (edgeCurlYAmount > 0.0) {
+        float yCurlFactor = smoothstep(0.0, 1.0, localUV.y * 0.5 + 0.5); // 0 at bottom edge, 1 at top edge
+        float yCurlAngle = yCurlFactor * edgeCurlYAmount * 3.14159; // 0 to π radians
+        float radius = 0.1; // curl radius
+
+        // Rotate around X axis
+        float cosA = cos(yCurlAngle);
+        float sinA = sin(yCurlAngle);
+        newPosition.y = position.y * cosA + position.z * sinA;
+        newPosition.z = -position.y * sinA + position.z * cosA - radius * (1.0 - cosA);
+    }
+
+    // Corner dog-earing - fold diagonal corners inward
+    if (cornerCurlAmount > 0.0) {
+        // Distance from each corner
+        vec2 cornerDistances[4];
+        cornerDistances[0] = vUv; // bottom-left (0,0)
+        cornerDistances[1] = vec2(1.0 - vUv.x, vUv.y); // bottom-right (1,0)
+        cornerDistances[2] = vec2(vUv.x, 1.0 - vUv.y); // top-left (0,1)
+        cornerDistances[3] = 1.0 - vUv; // top-right (1,1)
+
+        float minCornerDist = min(min(cornerDistances[0].x, cornerDistances[0].y),
+                                 min(min(cornerDistances[1].x, cornerDistances[1].y),
+                                    min(min(cornerDistances[2].x, cornerDistances[2].y),
+                                       min(cornerDistances[3].x, cornerDistances[3].y))));
+
+        float cornerFold = smoothstep(0.3, 0.0, minCornerDist) * cornerCurlAmount;
+        newPosition.z -= cornerFold * 0.2;
+    }
+
+    // Very subtle random variation per sheet
+    float microVar = noise(position.xz * 8.0 + seed * 20.0) * 2.0 - 1.0;
+    newPosition.z += microVar * curlAmount * 0.1;
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
+}
+</script>
+<script id="paper-fragment-shader" type="x-shader/x-fragment">
+varying vec2 vUv;
+varying float edgeDist;
+varying float viewDistance;
+
+void main() {
+    // Off-white sheet with gradient vignette on edges (for realism)
+    float vignette = smoothstep(0.03, 0.13, edgeDist);
+    float paper = mix(0.94, 1.0, vignette);
+
+    // Background color: 0x1a2d3a = (26, 45, 58) / 255 = (0.102, 0.176, 0.227)
+    vec3 backgroundColor = vec3(0.102, 0.176, 0.227);
+
+    // Fade to background color based on distance (start fading at 8 units, fully faded at 15 units)
+    float fadeStart = 8.0;
+    float fadeEnd = 15.0;
+    float fadeFactor = smoothstep(fadeStart, fadeEnd, viewDistance);
+
+    // Blend paper color towards background color
+    vec3 finalColor = mix(vec3(paper), backgroundColor, fadeFactor);
+
+    // Also fade alpha to fully transparent
+    float alpha = (0.82 + 0.18 * vignette) * (1.0 - fadeFactor);
+
+    gl_FragColor = vec4(finalColor, alpha);
+}
+</script>
+<script>
+// ---- Config ----
+const NUM_PAPER = 128;
+const PAPER_SIZE = [0.21, 0.297]; // a4 in meters, ratio-wise
+const PAPER_DEPTH = 33; // range on z
+const PAPER_AREA = 5.2; // frustum width/height
+
+const NUM_DUST_FACTOR = 220; // how many dust at dustDensity=1.0
+
+// --- Scene ---
+let renderer, camera, scene, composer;
+let paperPool = [];
+let paperParams = [];
+let sharedPaperGeometry, sharedPaperMaterial;
+let dustParticles, dustGeometry, dustMaterial, dustCount;
+let controls, bloomPass;
+let gridHelper, axesHelper;
+let dustSpriteTexture;
+
+// --- Uniforms ---
+let paperUniforms = [];
+
+// ---- UI State ----
+let params = {
+  paperSpeed: 0.45,
+  curl: 0.65,
+  edgeCurlX: 1.10,
+  edgeCurlY: 0.80,
+  cornerCurl: 0.5,
+  bloomStrength: 0.7,
+  dustDensity: 0.23,
+  dustSpeed: 0.14,
+  dustSize: 7.5,
+  dustColor: "#b5faff",
+  showHelpers: false,
+};
+
+function createDustSpriteTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+
+  const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+  gradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.4)');
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 64, 64);
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+// --- Init ---
+function resizeRendererToDisplaySize() {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  renderer.setSize(width, height, false);
+  composer.setSize(width, height);
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+}
+
+function init() {
+  // --- Scene, Camera, Renderer ---
+  scene = new THREE.Scene();
+
+  // FOG: Exponential, matches Three.js color fog
+  scene.fog = new THREE.FogExp2(0x14232a, 0.14);
+
+  // Helper grid showing XYZ planes
+  gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+  gridHelper.visible = false; // Start hidden
+  scene.add(gridHelper);
+
+  // Axis helper in the center
+  axesHelper = new THREE.AxesHelper(2);
+  axesHelper.visible = false; // Start hidden
+  scene.add(axesHelper);
+
+  camera = new THREE.PerspectiveCamera(46, 2, 0.01, 80);
+  camera.position.set(0, 0.08, -0.5);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setClearColor(0x1a2d3a, 1);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight * 0.92);
+
+  // Enable shadows
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  document.getElementById("three-container").appendChild(renderer.domElement);
+
+  // --- Gradient background with fog/point light illusion ---
+  // PointLight at far away, teal
+  let pointLight = new THREE.PointLight(0x1ffdff, 1.8, 12, 1.6);
+  pointLight.position.set(0, 1.9, -5.5);
+  pointLight.castShadow = true;
+  pointLight.shadow.mapSize.width = 2048;
+  pointLight.shadow.mapSize.height = 2048;
+  pointLight.shadow.camera.near = 0.1;
+  pointLight.shadow.camera.far = 20;
+  scene.add(pointLight);
+
+  // Secondary subtle dark blue light for contrast
+  let fillLight = new THREE.PointLight(0x143342, 1.5, 8, 3);
+  fillLight.position.set(-2, -1, -1.7);
+  fillLight.castShadow = true;
+  fillLight.shadow.mapSize.width = 2048;
+  fillLight.shadow.mapSize.height = 2048;
+  fillLight.shadow.camera.near = 0.1;
+  fillLight.shadow.camera.far = 15;
+  scene.add(fillLight);
+
+  // --- Dust Sprite Texture ---
+  dustSpriteTexture = createDustSpriteTexture();
+
+  // --- Paper Sheets: as object pool ---
+  createPaperPool();
+
+  // --- Dust Particles ---
+  createDustParticles();
+
+  // --- Postprocessing ---
+  composer = new THREE.EffectComposer(renderer);
+  composer.addPass(new THREE.RenderPass(scene, camera));
+  bloomPass = new THREE.UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    params.bloomStrength, 0.75, 0.95
+  );
+  composer.addPass(bloomPass);
+
+  // --- Controls ---
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.enablePan = false;
+  controls.minDistance = 0.25;
+  controls.maxDistance = 3.5;
+  controls.maxPolarAngle = Math.PI/2 + 0.2;
+  controls.target.set(0, 0, -1);
+
+  // --- Resize ---
+  window.addEventListener('resize', resizeRendererToDisplaySize);
+  resizeRendererToDisplaySize();
+
+  // --- UI Events ---
+  setupUI();
+
+  animate();
+}
+
+function createPaperPool() {
+  // Shared geometry for all papers
+  sharedPaperGeometry = new THREE.PlaneGeometry(PAPER_SIZE[0], PAPER_SIZE[1], 24, 36);
+
+  paperPool = [];
+  paperParams = [];
+
+  for(let i = 0; i < NUM_PAPER; i++) {
+    const seed = Math.random();
+    const uniforms = {
+      time: { value: 0 },
+      curlAmount: { value: params.curl },
+      edgeCurlXAmount: { value: params.edgeCurlX },
+      edgeCurlYAmount: { value: params.edgeCurlY },
+      cornerCurlAmount: { value: params.cornerCurl },
+      seed: { value: seed },
+      cameraPosition: { value: new THREE.Vector3() },
+    };
+
+    // Create material instance with its own uniforms
+    const mat = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: document.getElementById("paper-vertex-shader").textContent,
+      fragmentShader: document.getElementById("paper-fragment-shader").textContent,
+      side: THREE.DoubleSide,
+      transparent: true,
+      depthWrite: false,
+    });
+
+    // Create mesh with shared geometry but individual material
+    const mesh = new THREE.Mesh(sharedPaperGeometry, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    // Initial placement
+    let x = (Math.random()-0.5) * PAPER_AREA * 1.1;
+    let y = (Math.random()-0.4) * PAPER_AREA * 0.29;
+    let z = -Math.random() * PAPER_DEPTH - 1.0;
+
+    mesh.position.set(x, y, z);
+
+    // Random rotation in YAW (as if swirling)
+    let yaw = (Math.random()-0.5) * Math.PI * 1.2;
+    let pitch = (Math.random()-0.5) * 0.25;
+    let roll = (Math.random()-0.5) * 0.19;
+
+    mesh.rotation.set(pitch, yaw, roll);
+
+    // Store params for per-frame update
+    paperParams.push({
+      mesh, uniforms, seed, yaw, pitch, roll,
+      speed: 0.6 + Math.random()*0.46,
+      xAmp: (Math.random()-0.5)*0.035,
+      yFreq: 0.25 + Math.random()*0.12,
+      yPhase: Math.random()*Math.PI*2,
+      tOffset: Math.random()*2222,
+    });
+
+    paperPool.push(mesh);
+    scene.add(mesh);
+  }
+}
+
+function respawnPaper(p) {
+  p.mesh.position.x = (Math.random()-0.5) * PAPER_AREA * 1.1;
+  p.mesh.position.y = (Math.random()-0.4) * PAPER_AREA * 0.29;
+  p.mesh.position.z = -PAPER_DEPTH - Math.random() * (PAPER_DEPTH*0.38);
+
+  p.yaw = (Math.random()-0.5) * Math.PI * 1.2;
+  p.pitch = (Math.random()-0.5) * 0.22;
+  p.roll = (Math.random()-0.5) * 0.21;
+  p.speed = 0.77 + Math.random()*0.48;
+  p.xAmp = (Math.random()-0.5)*0.03;
+  p.yFreq = 0.2 + Math.random()*0.13;
+  p.yPhase = Math.random()*Math.PI*2;
+  p.tOffset = Math.random()*2828;
+}
+
+function createDustParticles() {
+  // Dispose old particles if any
+  if(dustParticles) scene.remove(dustParticles);
+
+  // Number depends on dust density
+  dustCount = Math.round(params.dustDensity * NUM_DUST_FACTOR);
+
+  dustGeometry = new THREE.BufferGeometry();
+  const positions = [];
+  const sizes = [];
+
+  for (let i = 0; i < dustCount; i++) {
+    // Random position within camera frustum ahead of camera
+    let x = (Math.random()-0.5) * PAPER_AREA * 0.87;
+    let y = (Math.random()-0.15) * PAPER_AREA * 0.22;
+    let z = -Math.random() * PAPER_DEPTH * 1.03;
+    positions.push(x, y, z);
+    sizes.push(1.0 + Math.random() * 0.7);
+  }
+
+  dustGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  dustGeometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+  dustMaterial = new THREE.PointsMaterial({
+    color: params.dustColor,
+    size: params.dustSize/200,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.65,
+    depthWrite: false,
+    map: dustSpriteTexture,
+    alphaTest: 0.001,
+    blending: THREE.AdditiveBlending,
+  });
+
+  dustParticles = new THREE.Points(dustGeometry, dustMaterial);
+  dustParticles.receiveShadow = true; // Can receive shadows but don't cast them
+  scene.add(dustParticles);
+}
+
+function setupUI() {
+  const gui = new lil.GUI();
+
+  // Paper controls
+  const paperFolder = gui.addFolder('Paper');
+  paperFolder.add(params, 'paperSpeed', 0.05, 1.5, 0.01).name('Speed').onChange(() => {});
+  paperFolder.add(params, 'curl', 0.0, 1.8, 0.01).name('Curl Amount').onChange(value => {
+    for(let p of paperParams) p.uniforms.curlAmount.value = value;
+  });
+  paperFolder.add(params, 'edgeCurlX', 0.0, 2.4, 0.01).name('Edge Curl X').onChange(value => {
+    for(let p of paperParams) p.uniforms.edgeCurlXAmount.value = value;
+  });
+  paperFolder.add(params, 'edgeCurlY', 0.0, 2.4, 0.01).name('Edge Curl Y').onChange(value => {
+    for(let p of paperParams) p.uniforms.edgeCurlYAmount.value = value;
+  });
+  paperFolder.add(params, 'cornerCurl', 0.0, 1.0, 0.01).name('Corner Curl').onChange(value => {
+    for(let p of paperParams) p.uniforms.cornerCurlAmount.value = value;
+  });
+
+  // Effects controls
+  const effectsFolder = gui.addFolder('Effects');
+  effectsFolder.add(params, 'bloomStrength', 0.0, 2.0, 0.01).name('Bloom Strength').onChange(value => {
+    bloomPass.strength = value;
+  });
+  effectsFolder.add(params, 'showHelpers').name('Show Helpers').onChange(value => {
+    gridHelper.visible = value;
+    axesHelper.visible = value;
+  });
+
+  // Dust controls
+  const dustFolder = gui.addFolder('Dust Particles');
+  dustFolder.add(params, 'dustDensity', 0.01, 1.0, 0.01).name('Density').onChange(() => {
+    createDustParticles();
+  });
+  dustFolder.add(params, 'dustSpeed', 0.02, 0.7, 0.01).name('Speed').onChange(() => {});
+  dustFolder.add(params, 'dustSize', 2, 15, 0.1).name('Size').onChange(value => {
+    dustMaterial.size = value/200;
+  });
+  dustFolder.addColor(params, 'dustColor').name('Color').onChange(value => {
+    dustMaterial.color.set(value);
+  });
+}
+
+function updatePaperObjs(t, dt) {
+  for(let i = 0; i < paperPool.length; i++) {
+    let p = paperParams[i];
+
+    // Animate forward along Z
+    p.mesh.position.z += params.paperSpeed * dt * p.speed;
+
+    // Sway/oscillate along X/Y softly
+    p.mesh.position.x += Math.sin(t * 0.33 + p.tOffset) * p.xAmp * (1.3 + p.seed * 1.7);
+    p.mesh.position.y += 0.02 * Math.sin(t * p.yFreq + p.yPhase);
+
+    // Slowly rotate
+    let dYaw = 0.01 * p.seed * Math.sin(t * 0.14 + p.mesh.position.z * 0.2);
+    let dPitch = 0.015 * p.seed * Math.cos(t * 0.16 + p.mesh.position.z * 0.3);
+
+    p.yaw += dYaw * dt;
+    p.pitch += dPitch * dt;
+    p.roll += 0.002 * Math.cos(t * 0.23 + p.mesh.position.z * 0.18);
+
+    p.mesh.rotation.set(p.pitch, p.yaw, p.roll);
+
+    // Update uniforms
+    p.uniforms.time.value = t + p.tOffset * 0.2;
+    p.uniforms.curlAmount.value = params.curl;
+    p.uniforms.edgeCurlXAmount.value = params.edgeCurlX;
+    p.uniforms.edgeCurlYAmount.value = params.edgeCurlY;
+    p.uniforms.cornerCurlAmount.value = params.cornerCurl;
+    p.uniforms.cameraPosition.value.copy(camera.position);
+
+    // Respawn ahead if passed camera (add buffer)
+    if (p.mesh.position.z > camera.position.z + 0.11) {
+      respawnPaper(p);
+    }
+  }
+}
+
+function updateDustParticles(dt) {
+  // Move dust forward, respawn far when passes camera
+  const positions = dustGeometry.getAttribute('position');
+  for (let i = 0; i < positions.count; i++) {
+    let z = positions.getZ(i) + params.dustSpeed*dt;
+    if (z > camera.position.z + 0.05) {
+      // Respawn far away, randomize xy
+      positions.setZ(i, -PAPER_DEPTH - Math.random()*PAPER_DEPTH*0.12);
+      positions.setX(i, (Math.random()-0.5) * PAPER_AREA * 0.87);
+      positions.setY(i, (Math.random()-0.15) * PAPER_AREA * 0.22);
+    } else {
+      positions.setZ(i, z);
+    }
+  }
+  positions.needsUpdate = true;
+  dustMaterial.size = params.dustSize/200;
+  dustMaterial.color.set(params.dustColor);
+}
+
+let lastAnimT = 0;
+function animate(now) {
+  requestAnimationFrame(animate);
+  let t = (now||performance.now())*0.001;
+  let dt = Math.min((t-lastAnimT), 0.08); // clamp for perf
+
+  updatePaperObjs(t, dt);
+  updateDustParticles(dt);
+
+  controls.update();
+  composer.render();
+
+  lastAnimT = t;
+}
+
+init();
+</script>
