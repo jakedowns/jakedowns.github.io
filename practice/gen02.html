@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>12 Principles of Animation - Grid p5.js Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+  <style>
+    body {
+      background:#111;
+      margin: 0;
+      font-family: 'JetBrains Mono', 'Fira Mono', 'Menlo', 'monospace', monospace;
+      color: #eee;
+    }
+    .demo-container {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      box-sizing: border-box;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      gap: 1vw;
+      width: 95vw;
+      height: 92vh;
+      max-width: 1600px;
+      max-height: 900px;
+    }
+    .cell-canvas {
+      border-radius: 8px;
+      outline: 1px solid #333;
+      display: block;
+      background: #111;
+    }
+    @media (max-width:700px) {
+      .grid { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(6, 1fr); }
+    }
+    @media (max-width:500px) {
+      .grid { grid-template-columns: 1fr; grid-template-rows: repeat(12, 1fr); }
+      .demo-container { padding: 6vw 0; }
+    }
+  </style>
+</head>
+<body>
+<div class="demo-container">
+  <div class="grid" id="canvasGrid"></div>
+</div>
+<script>
+const PRINCIPLES = [
+  'Squash & Stretch',
+  'Anticipation',
+  'Staging',
+  'Straight Ahead & Pose to Pose',
+  'Follow Through & Overlapping',
+  'Slow In & Out',
+  'Arcs',
+  'Secondary Action',
+  'Timing',
+  'Exaggeration',
+  'Solid Drawing',
+  'Appeal'
+];
+
+let sketches = [];
+
+function makeSketch(idx) {
+  return function(p) {
+    let w = 340, h = 200;
+    p.setup = function() {
+      p.createCanvas(w, h);
+      p.frameRate(60);
+      p.background(0);
+    };
+    p.draw = function() {
+      // Semi-transparent black fade
+      p.background(0, 180);
+      // Label number in mono font
+      p.strokeWeight(1);
+      p.fill(255, 255, 255, 180);
+      p.textSize(18);
+      p.textAlign(p.LEFT, p.BASELINE);
+      p.textFont('monospace');
+      let label = (idx+1).toString().padStart(2,'0');
+      p.text(label, 10, 24);
+      // Principle title
+      p.textSize(15);
+      p.fill(180);
+      p.textAlign(p.RIGHT, p.TOP);
+      p.text(PRINCIPLES[idx], w-10, 13);
+
+      // Draw demo per cell idx:
+      if(idx === 0) {
+        // 1. Squash & Stretch (bouncing ball)
+        let t = (p.frameCount/60);
+        let g = 1200;
+        let px = w/2, r0 = 26, ground = h-40;
+        let bounceT = t % 1;
+        let v = Math.abs(Math.sin(Math.PI * bounceT));
+        let py = p.lerp(40, ground, v*v);
+        // Squash and stretch:
+        let squash = p.map(Math.abs(py - ground), 0, ground-40, 1, 0.53, true);
+        let stretch = p.map(Math.abs(py - 40), 0, ground-40, 1, 1.38, true);
+        // Ball shadow
+        p.noStroke();
+        //p.fill(255,255,255,50);
+        p.ellipse(px, ground+7, 40*squash, 12);
+        // Ball
+        //p.fill(255);
+        p.fill(0);
+        p.stroke(255);
+        p.strokeWeight(2);
+        p.ellipse(px, py, r0*stretch, r0/squash);
+        // Ground line
+        p.stroke(255);
+        p.strokeWeight(2);
+        p.line(10, ground+26, w-10, ground+26);
+      } else if(idx === 10) {
+        // 11. Solid Drawing - 2D square morphing to 3D cube projection
+        let t = (p.frameCount / 120) % 2; // 2 second cycle
+        let morphProgress = Math.abs(Math.sin(t * Math.PI)); // 0 to 1 to 0
+
+        // Center of canvas
+        let cx = w/2, cy = h/2;
+        let size = 60;
+
+        // 2D square vertices
+        let squareVertices = [
+          {x: cx - size, y: cy - size}, // top-left
+          {x: cx + size, y: cy - size}, // top-right
+          {x: cx + size, y: cy + size}, // bottom-right
+          {x: cx - size, y: cy + size}  // bottom-left
+        ];
+
+        // 3D cube vertices (before rotation and projection)
+        let cubeSize = size * 0.8;
+        let cubeVertices3D = [
+          [-cubeSize, -cubeSize, -cubeSize], // 0: front-top-left
+          [cubeSize, -cubeSize, -cubeSize],  // 1: front-top-right
+          [cubeSize, cubeSize, -cubeSize],   // 2: front-bottom-right
+          [-cubeSize, cubeSize, -cubeSize],  // 3: front-bottom-left
+          [-cubeSize, -cubeSize, cubeSize],  // 4: back-top-left
+          [cubeSize, -cubeSize, cubeSize],   // 5: back-top-right
+          [cubeSize, cubeSize, cubeSize],    // 6: back-bottom-right
+          [-cubeSize, cubeSize, cubeSize]    // 7: back-bottom-left
+        ];
+
+        // Rotate cube
+        let angle = t * Math.PI * 2;
+        let rotatedVertices3D = cubeVertices3D.map(v => {
+          let [x, y, z] = v;
+          // Rotate around Y axis
+          let cosY = Math.cos(angle), sinY = Math.sin(angle);
+          let x1 = x * cosY - z * sinY;
+          let z1 = x * sinY + z * cosY;
+          // Rotate around X axis slightly
+          let cosX = Math.cos(angle * 0.3), sinX = Math.sin(angle * 0.3);
+          let y2 = y * cosX - z1 * sinX;
+          let z2 = y * sinX + z1 * cosX;
+          return [x1, y2, z2];
+        });
+
+        // Project 3D to 2D
+        let focalLength = 200;
+        let projectedVertices = rotatedVertices3D.map(v => {
+          let [x, y, z] = v;
+          let scale = focalLength / (focalLength + z);
+          return {
+            x: cx + x * scale,
+            y: cy + y * scale
+          };
+        });
+
+        // Interpolate between square and cube vertices
+        let currentVertices = squareVertices.map((squareVert, i) => {
+          let cubeVert = projectedVertices[i];
+          return {
+            x: p.lerp(squareVert.x, cubeVert.x, morphProgress),
+            y: p.lerp(squareVert.y, cubeVert.y, morphProgress)
+          };
+        });
+
+        // Draw the shape
+        p.stroke(255);
+        p.strokeWeight(2);
+        p.noFill();
+
+        if(morphProgress < 0.5) {
+          // Drawing as square/early morph
+          for(let i = 0; i < 4; i++) {
+            let next = (i + 1) % 4;
+            p.line(currentVertices[i].x, currentVertices[i].y,
+                   currentVertices[next].x, currentVertices[next].y);
+          }
+        } else {
+          // Drawing as cube - connect vertices in cube order
+          let edges = [
+            [0,1], [1,2], [2,3], [3,0], // front face
+            [4,5], [5,6], [6,7], [7,4], // back face
+            [0,4], [1,5], [2,6], [3,7]  // connecting edges
+          ];
+
+          // Sort edges by depth for proper drawing order
+          let depths = projectedVertices.map((v, i) => ({
+            index: i,
+            depth: rotatedVertices3D[i][2]
+          })).sort((a, b) => b.depth - a.depth);
+
+          edges.forEach(([i, j]) => {
+            let v1 = currentVertices[i];
+            let v2 = currentVertices[j];
+            p.line(v1.x, v1.y, v2.x, v2.y);
+          });
+        }
+      } else {
+        // Placeholder for other demos:
+        p.stroke(255,80);
+        p.strokeWeight(2);
+        for(let i=0; i<3; i++) p.line(16,40+20*i, w-16,40+20*i);
+      }
+    };
+  };
+}
+
+window.onload = function() {
+  let grid = document.getElementById('canvasGrid');
+  for(let i=0; i<12; i++) {
+    let cell = document.createElement('div');
+    cell.style.position='relative';
+    grid.appendChild(cell);
+    new p5(makeSketch(i), cell);
+  }
+};
+</script>
+</body>
+</html>
+

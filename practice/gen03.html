@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infinite Fibonacci Zoom</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden; /* Prevent scrollbars */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        canvas {
+            display: block;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body>
+<script>
+    const PHI = (1 + Math.sqrt(5)) / 2; // The Golden Ratio
+    let cells = [];
+
+    function setup() {
+        createCanvas(windowWidth, windowHeight);
+        colorMode(HSB, 360, 100, 100, 1);
+        rectMode(CENTER);
+        noFill();
+    }
+
+    function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+    }
+
+    function draw() {
+        background(0);
+        
+        // Grid configuration: 2 columns, 3 rows
+        let cols = 2;
+        let rows = 3;
+        let cellW = width / cols;
+        let cellH = height / rows;
+
+        // Draw the 6 patterns
+        drawCell(0, 0, cellW, cellH, drawGoldenRects);
+        drawCell(1, 0, cellW, cellH, drawPhyllotaxis);
+        drawCell(0, 1, cellW, cellH, drawPentagons);
+        drawCell(1, 1, cellW, cellH, drawTriangles);
+        drawCell(0, 2, cellW, cellH, drawCircles);
+        drawCell(1, 2, cellW, cellH, drawSpiralWeb);
+
+        // Draw white borders for the grid
+        stroke(255);
+        strokeWeight(4);
+        noFill();
+        // Vertical line
+        line(width/2, 0, width/2, height);
+        // Horizontal lines
+        line(0, height/3, width, height/3);
+        line(0, (height/3)*2, width, (height/3)*2);
+        // Outer border
+        rect(width/2, height/2, width, height);
+    }
+
+    // Helper to setup clipping and translation for each cell
+    function drawCell(col, row, w, h, drawFunc) {
+        let x = col * w;
+        let y = row * h;
+        
+        push();
+        // Create clipping mask for this cell
+        // We draw a rect and use drawingContext.clip() to keep graphics inside
+        drawingContext.save();
+        drawingContext.beginPath();
+        drawingContext.rect(x, y, w, h);
+        drawingContext.clip();
+
+        // Translate to center of cell
+        translate(x + w / 2, y + h / 2);
+        
+        // Pass the max dimension for scaling
+        let maxDim = max(w, h);
+        drawFunc(maxDim);
+
+        drawingContext.restore();
+        pop();
+    }
+
+    // --- PATTERN 1: Golden Rectangles Tunnel ---
+    function drawGoldenRects(dim) {
+        let time = millis() * 0.001; // Convert to seconds for smoother scaling
+        let scaleFactor = pow(PHI, time * 0.1); // Exponential growth for infinite zoom
+
+        rotate(time * 0.1); // Gentle rotation
+
+        for (let i = 0; i < 30; i++) {
+            let s = dim * 2 * pow(1/PHI, i) / scaleFactor; // Divide by scaleFactor to zoom out
+            if (s < 1) break; // Optimization
+
+            stroke(320, 60, 100);
+            strokeWeight(2);
+            rect(0, 0, s, s);
+
+            // Draw the curve
+            arc(-s/2, -s/2, s*2, s*2, 0, PI/2);
+        }
+    }
+
+    // --- PATTERN 2: Phyllotaxis (Sunflower) Zoom ---
+    function drawPhyllotaxis(dim) {
+        let time = millis() / 1000;
+        let cBase = 8;
+
+        // For infinite zoom out, scale down over time exponentially
+        let scaleMult = 1 / pow(PHI, time * 0.05); // Exponential decay for infinite zoom out
+
+        scale(scaleMult);
+        rotate(time * 0.2);
+
+        let angle = 137.5; // Golden Angle
+        for (let n = 0; n < 300; n++) {
+            let r = cBase * sqrt(n);
+            let theta = n * radians(angle);
+
+            let x = r * cos(theta);
+            let y = r * sin(theta);
+
+            // Color based on distance
+            let hue = (n * 0.5 + time * 20) % 360;
+            fill(hue, 70, 100);
+            noStroke();
+            let dotSize = (3 + n/20) * scaleMult; // Scale dot size with zoom
+            ellipse(x, y, dotSize, dotSize);
+        }
+    }
+
+    // --- PATTERN 3: Nested Pentagons ---
+    function drawPentagons(dim) {
+        let time = millis() / 1000;
+        // Infinite zoom out: exponential decay
+        let currentScale = 1 / pow(PHI, time * 0.03);
+
+        rotate(time * 0.2);
+
+        noFill();
+        stroke(200, 80, 100);
+        strokeWeight(3);
+
+        let layers = 20; // Increased for infinite zoom
+        let radius = dim;
+
+        scale(currentScale);
+
+        for (let i = 0; i < layers; i++) {
+            drawPoly(0, 0, radius, 5);
+            rotate(PI); // Alternate rotation for interest
+            radius /= PHI;
+            // Color gradient
+            stroke((200 + i * 20) % 360, 80, 100);
+        }
+    }
+    
+    function drawPoly(x, y, radius, npoints) {
+        let angle = TWO_PI / npoints;
+        beginShape();
+        for (let a = 0; a < TWO_PI; a += angle) {
+            let sx = x + cos(a) * radius;
+            let sy = y + sin(a) * radius;
+            vertex(sx, sy);
+        }
+        endShape(CLOSE);
+    }
+
+    // --- PATTERN 4: Sierpinski / Golden Triangles ---
+    function drawTriangles(dim) {
+        let time = millis() / 1000;
+        // Infinite zoom out: exponential decay
+        let s = 1 / pow(PHI, time * 0.04);
+
+        scale(s);
+        rotate(time * 0.25);
+
+        let h = dim * 1.5;
+
+        strokeWeight(2);
+        noFill();
+
+        for(let i=0; i<15; i++) { // Increased layers for infinite zoom
+            stroke((40 + i*30)%360, 90, 100);
+
+            // Draw triangle
+            let r = h / pow(1.5, i); // Factor 1.5 close to phi logic for triangles
+
+            beginShape();
+            for(let a=0; a<3; a++){
+                let ang = TWO_PI/3 * a - PI/2;
+                vertex(cos(ang)*r, sin(ang)*r);
+            }
+            endShape(CLOSE);
+
+            // Rotate next iteration
+            rotate(PI/6);
+        }
+    }
+
+    // --- PATTERN 5: Concentric Circles (Tunnel) ---
+    function drawCircles(dim) {
+        let t = (millis() / 1500) % 1;
+        // Logarithmic zoom for smooth infinite tunnel
+        // We draw circles at radii defined by Fib powers, shifted by t
+        
+        strokeWeight(2);
+        noFill();
+        
+        let count = 20;
+        for(let i = 0; i < count; i++) {
+            // d = base * pow(PHI, i + t)
+            // To zoom out, powers should decrease or we view higher powers shrinking
+            // Let's make radius shrink from PHI to 1
+            let p = i - t; 
+            let r = (dim/2) * pow(0.618, p); // 0.618 is 1/PHI
+            
+            if (r > dim * 1.5) continue; // Clip huge ones
+            
+            stroke((160 + i*20)%360, 80, 100);
+            
+            // Add some waviness to the circles
+            beginShape();
+            for(let a=0; a<TWO_PI; a+=0.1){
+                let offset = sin(a*10 + millis()/500)* (r*0.05);
+                vertex(cos(a)*(r+offset), sin(a)*(r+offset));
+            }
+            endShape(CLOSE);
+        }
+    }
+
+    // --- PATTERN 6: Fibonacci Spiral Web ---
+    function drawSpiralWeb(dim) {
+        let t = (millis() / 4000) % 1;
+        // Rotate the whole web
+        rotate(millis() / 5000);
+        
+        let zoom = map(t, 0, 1, PHI, 1);
+        scale(zoom);
+
+        let arms = 8; // Fibonacci number
+        let rings = 12;
+        
+        strokeWeight(2);
+        
+        for (let i = 0; i < rings; i++) {
+            let r = (dim) * pow(0.618, i - 1); // Exponential spacing
+            stroke((280 + i * 20) % 360, 70, 100);
+            
+            beginShape();
+            for (let j = 0; j <= arms * 3; j++) { // *3 for more detail in curve
+                let theta = map(j, 0, arms, 0, TWO_PI);
+                // Twist the radius based on angle to create spiral
+                let rTwist = r * (1 + 0.3 * sin(theta * 5 + i)); 
+                let x = rTwist * cos(theta + i*0.5); // Offset rotation per ring
+                let y = rTwist * sin(theta + i*0.5);
+                vertex(x, y);
+            }
+            endShape(CLOSE);
+        }
+    }
+</script>
+</body>
+</html>
