@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Animation - HIRE ME</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+        }
+        .w-full {
+            width: 100%;
+        }
+        .h-screen {
+            height: 100vh;
+        }
+        .flex {
+            display: flex;
+        }
+        .items-center {
+            align-items: center;
+        }
+        .justify-center {
+            justify-content: center;
+        }
+        .bg-black {
+            background-color: #000000;
+        }
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        .restart-btn {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        .restart-btn:hover {
+            background: #555;
+        }
+        .speed-slider {
+            width: 200px;
+            margin-right: 10px;
+        }
+        .speed-value {
+            display: inline-block;
+            min-width: 30px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        function PixelAnimation() {
+            const containerRef = React.useRef(null);
+            const [speed, setSpeed] = React.useState(1);
+            const [staggerDelay, setStaggerDelay] = React.useState(100);
+            const [restartKey, setRestartKey] = React.useState(0);
+
+            const handleRestart = () => {
+                setRestartKey(prev => prev + 1);
+            };
+
+            React.useEffect(() => {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js';
+                script.async = true;
+                document.body.appendChild(script);
+
+                script.onload = () => {
+                    const sketch = (p, speedMultiplier) => {
+                        // Custom blocky font - each character is 5x7 grid of pixels
+                        const font = {
+                            'H': [
+                                [1,0,0,0,1],
+                                [1,0,0,0,1],
+                                [1,0,0,0,1],
+                                [1,1,1,1,1],
+                                [1,0,0,0,1],
+                                [1,0,0,0,1],
+                                [1,0,0,0,1]
+                            ],
+                            'I': [
+                                [1,1,1,1,1],
+                                [0,0,1,0,0],
+                                [0,0,1,0,0],
+                                [0,0,1,0,0],
+                                [0,0,1,0,0],
+                                [0,0,1,0,0],
+                                [1,1,1,1,1]
+                            ],
+                            'R': [
+                                [1,1,1,1,0],
+                                [1,0,0,0,1],
+                                [1,0,0,0,1],
+                                [1,1,1,1,0],
+                                [1,0,0,1,0],
+                                [1,0,0,0,1],
+                                [1,0,0,0,1]
+                            ],
+                            'E': [
+                                [1,1,1,1,1],
+                                [1,0,0,0,0],
+                                [1,0,0,0,0],
+                                [1,1,1,1,0],
+                                [1,0,0,0,0],
+                                [1,0,0,0,0],
+                                [1,1,1,1,1]
+                            ],
+                            'M': [
+                                [1,0,0,0,1],
+                                [1,1,0,1,1],
+                                [1,0,1,0,1],
+                                [1,0,0,0,1],
+                                [1,0,0,0,1],
+                                [1,0,0,0,1],
+                                [1,0,0,0,1]
+                            ],
+                            ' ': [
+                                [0,0,0,0,0],
+                                [0,0,0,0,0],
+                                [0,0,0,0,0],
+                                [0,0,0,0,0],
+                                [0,0,0,0,0],
+                                [0,0,0,0,0],
+                                [0,0,0,0,0]
+                            ]
+                        };
+
+                        const pixelSize = 10;
+                        const pixelSpacing = 2;
+                        const cellSize = pixelSize + pixelSpacing;
+
+                        let pixels = [];
+                        let animationComplete = false;
+                        let hoveredPixelIndex = -1;
+                        let prevHoveredPixelIndex = -1;
+                        const charWidth = 5;
+                        const charHeight = 7;
+                        const charSpacing = 1;
+
+                        p.setup = () => {
+                            const words = ["HIRE", "ME"];
+                            const maxWidth = Math.max(...words.map(w => w.length)) * (charWidth * cellSize + charSpacing * cellSize);
+                            const totalHeight = words.length * (charHeight * cellSize) + (words.length - 1) * cellSize * 2;
+                            p.createCanvas(maxWidth + 40, totalHeight + 40);
+                            p.background(0);
+                            p.noLoop();
+
+                            // Build pixel data with positions and delays
+                            let pixelIndex = 0;
+
+                            for (let w = 0; w < words.length; w++) {
+                                const word = words[w];
+                                let xOffset = 20;
+                                const yOffset = 20 + w * (charHeight * cellSize + cellSize * 2);
+
+                                for (let c = 0; c < word.length; c++) {
+                                    const char = word[c];
+                                    const charData = font[char];
+
+                                    for (let row = 0; row < charHeight; row++) {
+                                        for (let col = 0; col < charWidth; col++) {
+                                            if (charData[row][col] === 1) {
+                                                const x = xOffset + col * cellSize;
+                                                const y = yOffset + row * cellSize;
+                                                const baseDelay = pixelIndex * 33;
+
+                                                // Red pixel
+                                                pixels.push({
+                                                    x: x,
+                                                    y: y,
+                                                    width: 0,
+                                                    targetWidth: pixelSize,
+                                                    delay: baseDelay,
+                                                    startTime: null,
+                                                    complete: false,
+                                                    color: [255, 0, 0]
+                                                });
+
+                                                // Green pixel
+                                                pixels.push({
+                                                    x: x,
+                                                    y: y,
+                                                    width: 0,
+                                                    targetWidth: pixelSize,
+                                                    delay: baseDelay + (1 * staggerDelay),
+                                                    startTime: null,
+                                                    complete: false,
+                                                    color: [0, 255, 0]
+                                                });
+
+                                                // Blue pixel
+                                                pixels.push({
+                                                    x: x,
+                                                    y: y,
+                                                    width: 0,
+                                                    targetWidth: pixelSize,
+                                                    delay: baseDelay + (2 * staggerDelay),
+                                                    startTime: null,
+                                                    complete: false,
+                                                    color: [0, 0, 255]
+                                                });
+
+                                                // White pixel
+                                                pixels.push({
+                                                    x: x,
+                                                    y: y,
+                                                    width: 0,
+                                                    targetWidth: pixelSize,
+                                                    delay: baseDelay + (3 * staggerDelay),
+                                                    startTime: null,
+                                                    complete: false,
+                                                    color: [255, 255, 255]
+                                                });
+
+                                                pixelIndex++;
+                                            }
+                                        }
+                                    }
+
+                                    xOffset += (charWidth + charSpacing) * cellSize;
+                                }
+                            }
+
+                            // Start animation
+                            p.loop();
+                        };
+
+                        // Function to get pixel index from mouse position
+                        const getPixelIndexFromMouse = (mouseX, mouseY) => {
+                            for (let i = 0; i < pixels.length; i += 4) { // Each position has 4 pixels
+                                const pixel = pixels[i]; // Check first pixel of each set
+                                if (mouseX >= pixel.x && mouseX <= pixel.x + pixelSize &&
+                                    mouseY >= pixel.y && mouseY <= pixel.y + pixelSize) {
+                                    return Math.floor(i / 4); // Return position index
+                                }
+                            }
+                            return -1;
+                        };
+
+                        p.draw = () => {
+                            p.background(0);
+
+                            // Check for hover
+                            prevHoveredPixelIndex = hoveredPixelIndex;
+                            hoveredPixelIndex = getPixelIndexFromMouse(p.mouseX, p.mouseY);
+
+                            // Reset pixels when hover state changes
+                            if (hoveredPixelIndex !== prevHoveredPixelIndex) {
+                                const affectedIndex = hoveredPixelIndex !== -1 ? hoveredPixelIndex : prevHoveredPixelIndex;
+                                if (affectedIndex !== -1) {
+                                    // Reset the 4 pixels in staggered order: W(3), B(2), G(1), R(0)
+                                    const resetOrder = [3, 2, 1, 0]; // indices for W, B, G, R
+                                    resetOrder.forEach((i, orderIdx) => {
+                                        const pixelIndex = affectedIndex * 4 + i;
+                                        if (pixelIndex < pixels.length) {
+                                            setTimeout(() => {
+                                                pixels[pixelIndex].complete = false;
+                                                pixels[pixelIndex].startTime = null;
+                                                pixels[pixelIndex].width = hoveredPixelIndex !== -1 ? pixels[pixelIndex].targetWidth : 0;
+                                            }, orderIdx * 100); // 40ms stagger between each color (adjust if desired)
+                                        }
+                                    });
+                                }
+                            }
+
+                            // Draw grid
+                            p.stroke('#222222');
+                            p.strokeWeight(1);
+                            for (let x = 0; x < p.width; x += cellSize) {
+                                p.line(x, 0, x, p.height);
+                            }
+                            for (let y = 0; y < p.height; y += cellSize) {
+                                p.line(0, y, p.width, y);
+                            }
+
+                            const currentTime = p.millis();
+                            let allComplete = true;
+
+                            for (let i = 0; i < pixels.length; i++) {
+                                const pixel = pixels[i];
+                                const pixelPositionIndex = Math.floor(i / 4);
+                                const isHovered = pixelPositionIndex === hoveredPixelIndex;
+
+                                if (!pixel.complete) {
+                                    // Set delay based on hover state and position in set
+                                    const pixelInSet = i % 4; // 0=red, 1=green, 2=blue, 3=white
+                                    let delayOffset;
+
+                                    if (isHovered) {
+                                        // Reverse order for hover: W(3) -> B(2) -> G(1) -> R(0)
+                                        delayOffset = (3 - pixelInSet) * 50;
+                                    } else {
+                                        // Normal order: R(0) -> G(1) -> B(2) -> W(3)
+                                        delayOffset = pixelInSet * (staggerDelay / speedMultiplier);
+                                    }
+
+                                    const effectiveDelay = isHovered ? (currentTime - delayOffset) : (pixel.delay + delayOffset);
+
+                                    if (pixel.startTime === null && currentTime >= effectiveDelay) {
+                                        pixel.startTime = currentTime;
+                                    }
+
+                                    if (pixel.startTime !== null) {
+                                        const elapsed = currentTime - pixel.startTime;
+                                        const duration = 200 / speedMultiplier; // Faster for hover interactions
+                                        const progress = p.constrain(elapsed / duration, 0, 1);
+                                        const eased = 1 - Math.pow(1 - progress, 3);
+
+                                        if (isHovered) {
+                                            // Shrink from full to zero
+                                            pixel.width = pixel.targetWidth * (1 - eased);
+                                        } else {
+                                            // Expand from zero to full
+                                            pixel.width = pixel.targetWidth * eased;
+                                        }
+
+                                        if (progress >= 1) {
+                                            pixel.complete = true;
+                                            pixel.width = isHovered ? 0 : pixel.targetWidth;
+                                        }
+                                    }
+
+                                    if (!pixel.complete) allComplete = false;
+                                }
+
+                                // Draw pixel with clipping effect
+                                if (pixel.width > 0) {
+                                    p.push();
+                                    p.fill(pixel.color[0], pixel.color[1], pixel.color[2]);
+                                    p.noStroke();
+
+                                    // Anchor to left side, expand right
+                                    p.rect(pixel.x, pixel.y, pixel.width, pixelSize);
+                                    p.pop();
+                                }
+                            }
+
+                            // if (allComplete && !animationComplete) {
+                            //     animationComplete = true;
+                            //     p.noLoop();
+                            // }
+                        };
+                    };
+
+                    // Clear any existing canvas before creating new one
+                    if (containerRef.current) {
+                        containerRef.current.innerHTML = '';
+                    }
+
+                    new p5((p) => sketch(p, speed), containerRef.current);
+                };
+
+                return () => {
+                    document.body.removeChild(script);
+                };
+            }, [restartKey]);
+
+            return React.createElement(
+                'div',
+                { className: 'w-full h-screen bg-black relative' },
+                // Controls
+                React.createElement(
+                    'div',
+                    { className: 'controls' },
+                    // Restart button
+                    React.createElement(
+                        'div',
+                        { className: 'control-group' },
+                        React.createElement(
+                            'button',
+                            {
+                                className: 'restart-btn',
+                                onClick: handleRestart
+                            },
+                            'Restart Animation'
+                        )
+                    ),
+                    // Speed slider
+                    React.createElement(
+                        'div',
+                        { className: 'control-group' },
+                        React.createElement(
+                            'label',
+                            null,
+                            'Speed: ',
+                            React.createElement('span', { className: 'speed-value' }, speed.toFixed(1), 'x')
+                        ),
+                        React.createElement('input', {
+                            type: 'range',
+                            className: 'speed-slider',
+                            min: '0.1',
+                            max: '3',
+                            step: '0.1',
+                            value: speed,
+                            onChange: (e) => setSpeed(parseFloat(e.target.value))
+                        })
+                    ),
+                    // Stagger delay slider
+                    React.createElement(
+                        'div',
+                        { className: 'control-group' },
+                        React.createElement(
+                            'label',
+                            null,
+                            'Stagger Delay: ',
+                            React.createElement('span', { className: 'speed-value' }, staggerDelay, 'ms')
+                        ),
+                        React.createElement('input', {
+                            type: 'range',
+                            className: 'speed-slider',
+                            min: '0',
+                            max: '500',
+                            step: '25',
+                            value: staggerDelay,
+                            onChange: (e) => setStaggerDelay(parseInt(e.target.value))
+                        })
+                    )
+                ),
+                // Animation container
+                React.createElement(
+                    'div',
+                    { className: 'flex items-center justify-center h-screen' },
+                    React.createElement('div', { ref: containerRef })
+                )
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(PixelAnimation));
+    </script>
+</body>
+</html>

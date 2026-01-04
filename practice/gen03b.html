@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fibonacci Filament Glitch Weave</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #111; /* Match the sketch background */
+            overflow: hidden; /* Hide scrollbars */
+        }
+        canvas {
+            display: block; /* Removes default canvas margin */
+        }
+    </style>
+</head>
+<body>
+
+<script>
+    // --- Configuration ---
+    const BG_COLOR = 20; // Dark charcoal
+    const THREAD_COLOR = 220; // Bright silvery-gray for the "over" stitches
+    const ROW_HEIGHT = 3; // Vertical density of the weave
+    const BASE_SPACING_SCALER = 1.5; // Controls how fast the horizontal gaps widen
+    const ANIMATION_SPEED = 0.5; // Speed of the vertical scrolling/shifting
+
+    // --- Globals ---
+    let fibSet = new Set(); // For fast lookup of Fibonacci numbers
+    let warpPositions = []; // X-coordinates of the vertical threads
+    const cycler = [1, 1, 2, 3, 5, 8]; // The cyclic spacing rule
+    let vignetteBuffer;
+    let vignetteReady = false;
+
+
+    function setup() {
+        createCanvas(windowWidth, windowHeight);
+        vignetteBuffer = createGraphics(windowWidth, windowHeight);
+        vignetteReady = false;
+        noFill();
+        frameRate(120);
+
+        // 1. Pre-calculate Fibonacci numbers for fast lookup later.
+        // We only need enough to cover the number of vertical threads.
+        let f1 = 1, f2 = 1;
+        fibSet.add(f1);
+        fibSet.add(f2);
+        for (let i = 0; i < 25; i++) { // 25 terms is plenty for screen width
+            let nextF = f1 + f2;
+            fibSet.add(nextF);
+            f1 = f2;
+            f2 = nextF;
+        }
+
+        // 2. Pre-calculate the warp (vertical thread) positions based on the cyclic rule.
+        let currentX = 0;
+        let cyclerIndex = 0;
+        
+        // Start with a dense cluster on the left
+        for(let i = 0; i < 50; i++) {
+             warpPositions.push(currentX);
+             currentX += 2; 
+        }
+
+        // Begin the Fibonacci expansion
+        while (currentX < width * 1.2) { // Go a bit past screen width
+            warpPositions.push(currentX);
+            // Add spacing based on the sequence: 1, 1, 2, 3, 5, 8, 1, 1...
+            let spacing = cycler[cyclerIndex % cycler.length];
+            currentX += spacing * BASE_SPACING_SCALER;
+            cyclerIndex++;
+        }
+    }
+
+    function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+        vignetteBuffer = createGraphics(windowWidth, windowHeight);
+        vignetteReady = false;
+        // Recalculate positions on resize if necessary, 
+        // but for this abstract pattern, existing ones are usually fine.
+    }
+
+    function draw() {
+        background(BG_COLOR);
+        stroke(THREAD_COLOR);
+        strokeWeight(1.5); // Slightly thicker to look like physical thread filament
+
+        // Use time to create the shifting "glitch" effect
+        let timeShift = frameCount * ANIMATION_SPEED;
+
+        // Iterate down the screen in rows (The Weft)
+        for (let y = 0; y < height; y += ROW_HEIGHT) {
+            
+            // Calculate the shift for this specific row.
+            // The shift changes based on Y position (creating diagonals) AND time (scrolling).
+            let rowShift = Math.floor(y * 0.05 - timeShift);
+
+            // Iterate across the pre-calculated vertical positions (The Warp)
+            for (let i = 0; i < warpPositions.length; i++) {
+                let xPos = warpPositions[i];
+                
+                // THE CORE RULE:
+                // Determine the effective index by applying the row shift.
+                // We use modulo to wrap the index around so the pattern loops endlessly.
+                // Use abs() to handle negative shifts from scrolling up.
+                let effectiveIndex = Math.abs((i + rowShift) % warpPositions.length);
+
+                // If the resulting index is a Fibonacci number, draw the "stitch".
+                // This simulates the horizontal thread passing *over* the warp thread.
+                if (fibSet.has(effectiveIndex)) {
+                    // Draw a short horizontal dash. 
+                    // Add a tiny bit of random noise to y for a more organic, textile feel.
+                    let noiseY = y + random(-0.5, 0.5); 
+                    // The stitch length depends slightly on spacing to bridge gaps aesthetically
+                    let nextX = (i + 1 < warpPositions.length) ? warpPositions[i+1] : xPos + 5;
+                    let stitchLen = min((nextX - xPos) * 0.8, 10); 
+                    
+                    line(xPos, noiseY, xPos + stitchLen, noiseY);
+                }
+            }
+        }
+        
+        // Optional: Add a very subtle vignette overlay to enhance the deep textile feel
+        drawVignette();
+    }
+
+    function drawVignette() {
+        if (!vignetteReady) {
+            vignetteBuffer.clear();
+            vignetteBuffer.noFill();
+            vignetteBuffer.strokeWeight(width * 0.4);
+            vignetteBuffer.stroke(0, 100); // Very transparent black
+            vignetteBuffer.ellipse(width / 2, height / 2, width * 1.2, height * 1.2);
+            vignetteBuffer.filter(BLUR, 32); // Apply a strong blur to get a soft falloff
+            vignetteReady = true;
+        }
+        image(vignetteBuffer, 0, 0, width, height);
+    }
+</script>
+
+</body>
+</html>

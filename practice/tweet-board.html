@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>X (Twitter) Embed Grid Board</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Tailwind dark mode config, for demonstration
+      tailwind.config = { darkMode: 'class' };
+    </script>
+    <style>
+      html, body { height: 100%; background: #16181c; color: #fff; }
+      body { min-height: 100vh; }
+    </style>
+  </head>
+  <body class="min-h-screen bg-zinc-900">
+    <div id="root"></div>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script>
+      // UTILS
+      function parseXStatusURL(url) {
+        // Accept various forms:
+        // https://x.com/{user}/status/{id}, https://twitter.com/...
+        // Also support mobile versions.
+        const regex = /(?:x\.com|twitter\.com)\/(?:#!\/)?([\w]+)\/status\/(\d+)/i;
+        const match = url.match(regex);
+        return match ? { username: match[1], id: match[2] } : null;
+      }
+
+      function cleanEmbedList(tweetList) {
+        // De-dupe, remove empty, only keep valid tweet objects
+        const seen = new Set();
+        const cleaned = [];
+        for (const item of tweetList) {
+          if (item && item.username && item.id && /^\d+$/.test(item.id)) {
+            const key = item.username + '/' + item.id;
+            if (!seen.has(key)) {
+              seen.add(key);
+              cleaned.push(item);
+            }
+          }
+        }
+        return cleaned;
+      }
+
+      function saveEmbeds(ids) {
+        try {
+          window.localStorage.setItem("tweetEmbedIds", JSON.stringify(ids));
+        } catch {}
+      }
+
+      function loadEmbeds() {
+        try {
+          const data = window.localStorage.getItem("tweetEmbedIds");
+          if (data) {
+            return cleanEmbedList(JSON.parse(data));
+          }
+        } catch {}
+        return [];
+      }
+
+      // EMBED LOADER
+      // Handles loading the widget js if needed, and reloads on update
+      function reloadXWidgetScript() {
+        // if (window.twttr && window.twttr.widgets && window.twttr.widgets.load) {
+        //   window.twttr.widgets.load();
+        //   return;
+        // }
+        // If not loaded, try to add the script
+        let js = document.getElementById('x-embed-widget-loader');
+        if (js) {
+            js.parentElement.removeChild(js)
+        }
+          js = document.createElement("script");
+          js.id = "x-embed-widget-loader";
+          js.src = "https://platform.twitter.com/widgets.js";
+          js.async = true;
+          document.body.appendChild(js);
+      }
+
+      // Single X Embed
+      function XEmbed(props) {
+        const containerRef = React.useRef(null);
+
+        React.useEffect(function() {
+          if (containerRef.current) {
+            containerRef.current.innerHTML = '<blockquote class="w-full twitter-tweet" data-theme="dark"><p lang="en" dir="ltr"><a href="https://twitter.com/' + props.username + '/status/' + props.id + '">Loading...</a></p></blockquote>';
+            reloadXWidgetScript();
+          }
+        }, [props.username, props.id]);
+
+        // No JSX
+        return React.createElement(
+          "div",
+          { className: "relative group" },
+          React.createElement(
+            "button",
+            {
+              onClick: function() { props.onRemove(props.id); },
+              className: "absolute right-2 top-2 z-10 rounded-full p-1 bg-zinc-700/80 text-zinc-300 opacity-0 group-hover:opacity-100 hover:bg-red-600 hover:text-white transition",
+              title: "Remove",
+              type: "button"
+            },
+            React.createElement(
+              "svg",
+              { width: 18, height: 18, viewBox: "0 0 20 20", fill: "none" },
+              React.createElement("path", {
+                d: "M6 6L14 14M14 6L6 14",
+                stroke: "currentColor",
+                strokeWidth: "2",
+                strokeLinecap: "round"
+              })
+            )
+          ),
+          React.createElement("div", { ref: containerRef })
+        );
+      }
+
+      // Main App
+      function App() {
+        const useState = React.useState, useEffect = React.useEffect;
+        const _refInput = React.useRef ? React.useRef(null) : null;
+        const _refForm = React.useRef ? React.useRef(null) : null;
+        const [input, setInput] = useState("");
+        const [tweets, setTweets] = useState(function() { return loadEmbeds(); });
+        const [error, setError] = useState("");
+
+        useEffect(function() {
+          saveEmbeds(tweets);
+        }, [tweets]);
+
+        function handleAdd(e) {
+          e.preventDefault();
+          setError("");
+          var url = input.trim();
+          if (!url) return;
+          var tweet = parseXStatusURL(url);
+          if (!tweet) {
+            setError("Please enter a valid X / Twitter status URL.");
+            return;
+          }
+          if (tweets.some(t => t.username === tweet.username && t.id === tweet.id)) {
+            setError("Already embedded.");
+            return;
+          }
+          setTweets(tweets.concat([tweet]));
+          setInput("");
+        }
+
+        function handlePaste(e) {
+          var clip = (e.clipboardData && e.clipboardData.getData('Text')) || "";
+          if (parseXStatusURL(clip)) {
+            setInput(clip);
+            e.preventDefault();
+          }
+        }
+
+        function removeEmbed(tweetToRemove) {
+          setTweets(tweets.filter(function(tweet) {
+            return !(tweet.username === tweetToRemove.username && tweet.id === tweetToRemove.id);
+          }));
+        }
+
+        function clearAll() {
+          if (window.confirm("Remove all embeds?")) setTweets([]);
+        }
+
+        // No JSX: All UI via React.createElement!
+        return React.createElement(
+          "div",
+          { className: "max-w-6xl mx-auto px-2 py-6 min-h-screen flex flex-col" },
+          React.createElement(
+            "h1",
+            { className: "text-3xl font-bold m-4 tracking-tight text-center text-white" },
+            "X Status Embed Board"
+          ),
+          React.createElement(
+            "form",
+            {
+              onSubmit: handleAdd,
+              className: "flex flex-col sm:flex-row items-center gap-2 w-full mx-auto mb-5"
+            },
+            React.createElement("input", {
+              className: "flex-1 rounded bg-zinc-800 text-white px-3 py-2 outline-none ring-1 ring-zinc-700 shadow-inner placeholder:text-zinc-400 transition focus:ring-blue-600 w-30",
+              type: "url",
+              required: true,
+              placeholder: "Paste any X / Twitter status URL here",
+              value: input,
+              onChange: function(e) { setInput(e.target.value); },
+              onPaste: handlePaste,
+              autoFocus: true,
+              "aria-label": "X URL"
+            }),
+            React.createElement(
+              "button",
+              {
+                type: "submit",
+                className: "rounded px-4 py-2 bg-blue-600 text-white font-medium hover:bg-blue-500 transition shadow"
+              },
+              "Add"
+            ),
+            tweets.length > 0
+              ? React.createElement(
+                  "button",
+                  {
+                    type: "button",
+                    className: "rounded px-3 py-2 bg-zinc-700 text-zinc-200 font-medium hover:bg-red-700 hover:text-white transition text-sm",
+                    onClick: clearAll,
+                    title: "Remove all"
+                  },
+                  "Clear all"
+                )
+              : null
+          ),
+          error
+            ? React.createElement(
+                "div",
+                {
+                  className: "text-red-500 text-center pb-2"
+                },
+                error
+              )
+            : null,
+
+          React.createElement(
+            "div",
+            {
+              className:
+                "grid gap-6 flex-1 " +
+                "grid-cols-1 " +
+                "sm:grid-cols-3 " +
+                "md:grid-cols-4 " +
+                "lg:grid-cols-5 " +
+                "xl:grid-cols-6 " +
+                "w-full transition-all"
+            },
+            tweets.length === 0
+              ? React.createElement(
+                  "div",
+                  { className: "col-span-full w-full text-zinc-400 text-center mt-20 text-lg opacity-60" },
+                  "Paste any X status URL above and it will appear here!",
+                  React.createElement("br"),
+                  "Responsive grid, autosaved."
+                )
+              : tweets.map(function(tweet) {
+                  return React.createElement(XEmbed, {
+                    username: tweet.username,
+                    id: tweet.id,
+                    key: tweet.username + '/' + tweet.id,
+                    onRemove: removeEmbed
+                  });
+                })
+          ),
+          React.createElement(
+            "footer",
+            { className: "mt-10 text-zinc-600 text-center text-xs" },
+            React.createElement( 
+              "span",
+              null,
+              React.createElement(
+                "a",
+                {
+                  href: "https://developer.twitter.com/en/docs/twitter-for-websites/embedded-tweets/guides/embedded-tweet-parameter-reference",
+                  rel: "noopener noreferrer",
+                  className: "underline",
+                  target: "_blank"
+                },
+                "Powered by X Embeds"
+              )
+            )
+          )
+        );
+      }
+
+      // Mount
+      ReactDOM.createRoot(document.getElementById("root")).render(
+        React.createElement(App)
+      );
+    </script>
+  </body>
+</html>

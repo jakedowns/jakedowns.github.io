@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>p5.js Gold Circuits</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        background: #0b0b0b;
+        overflow: hidden;
+      }
+      #defaultCanvas0 {
+        display: block;
+        position: absolute;
+        inset: 0;
+        width: 100vw !important;
+        height: 100vh !important;
+      }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  </head>
+  <body>
+    <script>
+      // Global direction for highlight (top left) - will be initialized in setup
+      let lightDirection;
+      let chips = [], wires = [];
+
+      // Configuration: disable 45-degree angle wires by default
+      const ENABLE_45_DEGREE_WIRES = false;
+
+      // Helper function to check if a chip overlaps with any existing chips
+      function chipsOverlap(x, y, w, h, existingChips) {
+        for (let chip of existingChips) {
+          if (x < chip.x + chip.w &&
+              x + w > chip.x &&
+              y < chip.y + chip.h &&
+              y + h > chip.y) {
+            return true; // Overlap detected
+          }
+        }
+        return false; // No overlap
+      }
+
+      function randomNearBlack() {
+        let v = random(20, 32); // #101016 - #202024
+        return color(v, v, v + random(3,8)); // bluish-black, variable
+      }
+
+      function setup() {
+        createCanvas(windowWidth, windowHeight);
+        // Initialize light direction vector now that p5.js is loaded
+        lightDirection = createVector(-1, -1).normalize();
+        noLoop();
+        generateChipsAndWires();
+      }
+
+      function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+        generateChipsAndWires();
+        redraw();
+      }
+
+      function generateChipsAndWires() {
+        randomSeed(floor(random(1000000))); // each resize gets new circuit
+        chips = [];
+        wires = [];
+        let chipCount = floor(map(min(width, height), 400, 1600, 3, 13));
+        // Chips all in a padding box
+        let pad = min(width, height) * 0.07;
+        for (let i = 0; i < chipCount; i++) {
+          let w = random(width*0.08, width*0.14);
+          let h = random(height*0.06, height*0.12);
+          let x, y;
+          let attempts = 0;
+          let maxAttempts = 50;
+
+          // Keep trying random positions until we find one that doesn't overlap
+          do {
+            x = random(pad, width-w-pad);
+            y = random(pad, height-h-pad);
+            attempts++;
+          } while (attempts < maxAttempts && chipsOverlap(x, y, w, h, chips));
+
+          // If we couldn't find a non-overlapping position, place it anyway
+          chips.push({
+            x, y, w, h,
+            color: randomNearBlack(),
+            id: i,
+            pins: [], // locations on chip edge for connections
+          });
+        }
+
+        // Each chip gets from 2-6 "pins" (connection points) on their edge
+        for (let chip of chips) {
+          let nPins = floor(random(2, 6));
+          for (let pi = 0; pi < nPins; pi++) {
+            let edge = floor(random(4));
+            let margin = 20;
+            let px, py;
+            switch(edge) {
+              case 0: // top
+                px = chip.x + random(margin, chip.w-margin);
+                py = chip.y;
+                break;
+              case 1: // right
+                px = chip.x + chip.w;
+                py = chip.y + random(margin, chip.h-margin);
+                break;
+              case 2: // bottom
+                px = chip.x + random(margin, chip.w-margin);
+                py = chip.y + chip.h;
+                break;
+              case 3: // left
+                px = chip.x;
+                py = chip.y + random(margin, chip.h-margin);
+                break;
+            }
+            chip.pins.push({
+              x: px,
+              y: py,
+              angle: edge*PI/2
+            });
+          }
+        }
+
+        // Wires between chips (random pairs of pins)
+        let wireCount = chips.length * 2 + floor(random(2,8));
+        let allPins = chips.flatMap(ch => ch.pins.map(p => ({...p, chipId: ch.id})));
+        for (let i=0; i<wireCount && allPins.length > 2; i++) {
+          let a = floor(random(allPins.length)), b;
+          do { b = floor(random(allPins.length)); } while (b===a || allPins[a].chipId === allPins[b].chipId);
+          let p1 = allPins[a], p2 = allPins[b];
+          wires.push({
+            x1: p1.x, y1: p1.y,
+            x2: p2.x, y2: p2.y,
+            controlType: ENABLE_45_DEGREE_WIRES ? (random() < 0.8 ? "90" : "45") : "90", // 45 deg wires disabled by default
+            roundness: random(16, 34)
+          });
+          // Optionally remove pins so not all wires connect to popular pin
+          if (random() < 0.5) allPins.splice(a,1);
+          if (b > a) b--; // index shifts after removal
+          if (random() < 0.5) allPins.splice(b,1);
+        }
+      }
+
+      function drawChip(chip) {
+        // Inset shadow/highlight on the edge toward the light
+        let c = chip.color;
+        noStroke();
+
+        // Draw outer soft highlight (simulate inset)
+        let hiCol = color(
+          red(c)   + (60 * -lightDirection.x), 
+          green(c) + (60 * -lightDirection.x), 
+          blue(c)  + (62 * -lightDirection.y), 
+          90);
+        let shadowCol = color(
+          red(c)   - 18, 
+          green(c) - 18, 
+          blue(c)  - 10, 
+          110);
+
+        // Outer, for fake "ambient" edge effect
+        drawingContext.save();
+        drawingContext.shadowColor = 'rgba(250,240,160,0.04)';
+        drawingContext.shadowBlur = 10;
+        rectMode(CORNER);
+        fill(c);
+        rect(chip.x, chip.y, chip.w, chip.h, 9);
+        drawingContext.restore();
+
+        // Inset highlight for "directional lighting"
+        push();
+        beginClip();
+        rect(chip.x, chip.y, chip.w, chip.h, 9);
+        endClip();
+        // highlight edge (simulate light from top left)
+        for (let i = 0; i < 12; i++) {
+          let ox = -lightDirection.x * i, oy = -lightDirection.y * i;
+          let f = map(i,0,11,1,0.09);
+          fill(lerpColor(hiCol, c, i/12));
+          rect(chip.x+ox, chip.y+oy, chip.w, chip.h, 9);
+        }
+        // Shadowed edge opposite
+        for (let i = 0; i < 8; i++) {
+          let ox = lightDirection.x * (i+0.5), oy = lightDirection.y * (i+0.5);
+          fill(lerpColor(shadowCol, c, i/8));
+          rect(chip.x+ox, chip.y+oy, chip.w, chip.h, 9);
+        }
+        pop();
+
+        // Optionally draw "chip label": faux pattern
+        // if (chip.w > 70 && chip.h > 35 && random() > 0.7) {
+          fill(120,100,38,90); // subtle
+          textSize(12);
+          textAlign(CENTER, CENTER);
+          text("IC"+chip.id, chip.x+chip.w/2, chip.y+chip.h/2);
+        // }
+      }
+
+      function drawGoldWire(wire) {
+        // Gold gradient along wire
+        let goldA = color(255, 236, 120);
+        let goldB = color(212, 182, 65);
+
+        strokeWeight(3.5);
+        strokeJoin(ROUND);
+        // Occasional chromatic aberration for sparkle
+        if (random()<0.13) {
+          stroke(lerpColor(goldA, goldB, random(0.75)));
+        } else {
+          stroke(lerpColor(goldA, goldB, random(0.42)));
+        }
+        noFill();
+
+        if (wire.controlType === "90") {
+          // 90deg: route in L-shape, random whether along x or y first
+          let mid;
+          if (random() < 0.5) {
+            mid = [wire.x1, wire.y2];
+          } else {
+            mid = [wire.x2, wire.y1];
+          }
+          // Draw straight lines with sharp 90° angles
+          beginShape();
+          vertex(wire.x1, wire.y1);
+          vertex(mid[0], mid[1]);
+          vertex(wire.x2, wire.y2);
+          endShape();
+        } else {
+          // 45deg: create a proper 45° angle with straight segments
+          let dx = wire.x2 - wire.x1, dy = wire.y2 - wire.y1;
+          let dist = sqrt(dx*dx + dy*dy);
+          let extension = dist * 0.3; // extend 30% of the distance
+
+          // Create a perpendicular offset for the 45° bend
+          let perp = createVector(-dy, dx).normalize().mult(extension);
+          let mid = [
+            (wire.x1 + wire.x2)/2 + perp.x,
+            (wire.y1 + wire.y2)/2 + perp.y
+          ];
+
+          // Draw straight lines with sharp 45° angle
+          beginShape();
+          vertex(wire.x1, wire.y1);
+          vertex(mid[0], mid[1]);
+          vertex(wire.x2, wire.y2);
+          endShape();
+        }
+
+        // End dots for "pads"
+        noStroke();
+        fill(255,234,120, 210);
+        for (let [x,y] of [[wire.x1, wire.y1],[wire.x2, wire.y2]]) {
+          ellipse(x, y, random(12,17));
+        }
+      }
+
+      function draw() {
+        // Create subtle vertical linear gradient background from slightly off-black to black
+        noFill();
+        // Use p5's setGradient function if you have one, otherwise:
+        let g = drawingContext.createLinearGradient(0, 0, 0, height);
+        g.addColorStop(0, 'rgb(30,30,30)');
+        g.addColorStop(1, 'rgb(10,10,10)');
+        drawingContext.save();
+        drawingContext.fillStyle = g;
+        drawingContext.fillRect(0,0,width,height);
+        drawingContext.restore();
+        noStroke();
+        // Circuits underneath: Gold wires, then chips above
+        for (let w of wires) drawGoldWire(w);
+        for (let c of chips) drawChip(c);
+
+        // Overdraw circuit "vias" (endpoints) again for emphasis
+        for (let w of wires) {
+          noStroke();
+          fill(255,234,120, 220);
+          ellipse(w.x1, w.y1, 8+random(2,7));
+          ellipse(w.x2, w.y2, 8+random(2,7));
+        }
+      }
+
+      // Drag or key to refresh
+      function mouseDragged() {
+        generateChipsAndWires();
+        redraw();
+      }
+      function touchStarted() {
+        generateChipsAndWires();
+        redraw();
+      }
+      function keyPressed() {
+        generateChipsAndWires();
+        redraw();
+      }
+    </script>
+    <div style="position:absolute;left:0;bottom:0;padding:24px 18px;color:#bd980a;pointer-events:none;user-select:none;font-family:sans-serif;font-size:12px;font-weight:600;letter-spacing:0.06em;text-shadow:0 1px 10px #0c070198;">
+      p5.js: Generative Gold Circuits &mdash; drag, tap, or <kbd>any key</kbd> to remix.
+    </div>
+  </body>
+</html>
