@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+  <style>
+    body { margin: 0; padding: 0; overflow: hidden; }
+  </style>
+</head>
+<body>
+<script>
+let particles = [];
+let attractors = [];
+
+function setup() {
+createCanvas(windowWidth, windowHeight);
+blendMode(ADD);
+
+// Create attractors for each letter
+let startX = width / 2 - 300;
+let y = height / 2;
+let spacing = 100;
+
+// G
+createG(startX, y);
+// E
+createE(startX + spacing, y);
+// N
+createN(startX + spacing * 2, y);
+// U
+createU(startX + spacing * 3, y);
+// A
+createA(startX + spacing * 4, y);
+// R
+createR(startX + spacing * 5, y);
+// Y
+createY(startX + spacing * 6, y);
+
+// Create particles
+for (let i = 0; i < 3000; i++) {
+particles.push(new Particle());
+}
+}
+
+function draw() {
+background(0, 0, 0, 25);
+
+for (let p of particles) {
+p.applyForces();
+p.update();
+p.display();
+}
+}
+
+class Particle {
+constructor() {
+this.pos = createVector(random(width), random(height));
+this.vel = createVector(0, 0);
+this.acc = createVector(0, 0);
+this.maxSpeed = 4;
+this.maxForce = 0.3;
+}
+
+applyForces() {
+let closest = null;
+let minDist = Infinity;
+
+```
+for (let a of attractors) {
+  let d = p5.Vector.dist(this.pos, a);
+  if (d < minDist) {
+    minDist = d;
+    closest = a;
+  }
+}
+
+if (closest) {
+  let force = p5.Vector.sub(closest, this.pos);
+  let d = force.mag();
+  
+  if (d < 5) {
+    force.mult(-1);
+    force.setMag(this.maxForce * 2);
+  } else if (d < 100) {
+    force.setMag(map(d, 0, 100, 0, this.maxForce));
+  } else {
+    force.setMag(0);
+  }
+  
+  this.acc.add(force);
+}
+```
+
+}
+
+update() {
+this.vel.add(this.acc);
+this.vel.limit(this.maxSpeed);
+this.pos.add(this.vel);
+this.acc.mult(0);
+
+```
+// Wrap around
+if (this.pos.x < 0) this.pos.x = width;
+if (this.pos.x > width) this.pos.x = 0;
+if (this.pos.y < 0) this.pos.y = height;
+if (this.pos.y > height) this.pos.y = 0;
+```
+
+}
+
+display() {
+noStroke();
+fill(0, 255, 200, 150);
+circle(this.pos.x, this.pos.y, 2);
+}
+}
+
+function createG(x, y) {
+// Vertical left
+for (let i = 0; i <= 20; i++) attractors.push(createVector(x, y - 30 + i * 3));
+// Top curve
+for (let a = PI; a <= TWO_PI; a += 0.1) attractors.push(createVector(x + cos(a) * 20, y - 30 + sin(a) * 20));
+// Bottom curve
+for (let a = 0; a <= PI; a += 0.1) attractors.push(createVector(x + cos(a) * 20, y + 30 + sin(a) * 20));
+// Horizontal middle right
+for (let i = 0; i <= 10; i++) attractors.push(createVector(x + 10 + i * 2, y + 10));
+}
+
+function createE(x, y) {
+// Vertical
+for (let i = 0; i <= 20; i++) attractors.push(createVector(x, y - 30 + i * 3));
+// Top horizontal
+for (let i = 0; i <= 10; i++) attractors.push(createVector(x + i * 2, y - 30));
+// Middle horizontal
+for (let i = 0; i <= 8; i++) attractors.push(createVector(x + i * 2, y));
+// Bottom horizontal
+for (let i = 0; i <= 10; i++) attractors.push(createVector(x + i * 2, y + 30));
+}
+
+function createN(x, y) {
+// Left vertical
+for (let i = 0; i <= 20; i++) attractors.push(createVector(x - 10, y - 30 + i * 3));
+// Diagonal
+for (let i = 0; i <= 20; i++) attractors.push(createVector(x - 10 + i, y - 30 + i * 3));
+// Right vertical
+for (let i = 0; i <= 20; i++) attractors.push(createVector(x + 10, y - 30 + i * 3));
+}
+
+function createU(x, y) {
+// Left vertical
+for (let i = 0; i <= 15; i++) attractors.push(createVector(x - 15, y - 30 + i * 3));
+// Bottom curve
+for (let a = PI; a <= TWO_PI; a += 0.1) attractors.push(createVector(x + cos(a) * 15, y + 15 + sin(a) * 15));
+// Right vertical
+for (let i = 0; i <= 15; i++) attractors.push(createVector(x + 15, y - 30 + i * 3));
+}
+
+function createA(x, y) {
+// Left diagonal
+for (let i = 0; i <= 20; i++) attractors.push(createVector(x - 15 + i * 0.75, y - 30 + i * 3));
+// Right diagonal
+for (let i = 0; i <= 20; i++) attractors.push(createVector(x + i * 0.75, y - 30 + i * 3));
+// Middle horizontal
+for (let i = 0; i <= 15; i++) attractors.push(createVector(x - 8 + i, y + 5));
+}
+
+function createR(x, y) {
+// Vertical
+for (let i = 0; i <= 20; i++) attractors.push(createVector(x - 10, y - 30 + i * 3));
+// Top curve
+for (let a = -HALF_PI; a <= HALF_PI; a += 0.1) attractors.push(createVector(x + cos(a) * 12, y - 15 + sin(a) * 12));
+// Diagonal leg
+for (let i = 0; i <= 15; i++) attractors.push(createVector(x + i * 1.2, y + i * 2));
+}
+
+function createY(x, y) {
+// Top left diagonal
+for (let i = 0; i <= 10; i++) attractors.push(createVector(x - 15 + i * 1.5, y - 30 + i * 3));
+// Top right diagonal
+for (let i = 0; i <= 10; i++) attractors.push(createVector(x + 15 - i * 1.5, y - 30 + i * 3));
+// Bottom vertical
+for (let i = 0; i <= 10; i++) attractors.push(createVector(x, y + i * 3));
+}
+
+function windowResized() {
+resizeCanvas(windowWidth, windowHeight);
+}
+</script>
+
+</body>
+</html>
