@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lights Out Recreation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        :root {
+            --bg-noise: url('https://plus.unsplash.com/premium_photo-1667811951673-3b3e8d6742c7?q=80&w=1674&auto=format&fit=crop');
+            --casing-color: #9da1a5;
+            --casing-shadow: #5a5e63;
+            --btn-off: #8e7f9e; /* Purpleish hue */
+            --btn-off-shadow: #4a3b5c;
+            --btn-on-core: #fff0f5;
+            --btn-on-glow: #ff1493; /* Hot pink */
+            --btn-on-rim: #ff69b4;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            background-color: #2a2a2a;
+        }
+
+        /* 8. Background: Worn metal table with noise */
+        .table-surface {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                linear-gradient(-180deg, rgba(20,20,20,0.1), rgba(0,0,0,0.7));
+            background-blend-mode: screen;
+            filter: contrast(1.5) grayscale(0.9);
+            z-index: -1;
+        }
+
+        .table-surface::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: var(--bg-noise);
+            background-color: black;
+            background-size: 50% 50%;
+            background-repeat: repeat;
+            background-position: center;
+            opacity: 0.3;
+            z-index: -1;
+        }
+
+        /* Device Casing */
+        .device {
+            width: 320px;
+            height: 580px;
+            background: linear-gradient(160deg, #d3d6da 0%, #9da1a5 40%, #767a7e 100%);
+            border-radius: 15px 15px 40px 40px;
+            box-shadow: 
+                inset 2px 2px 5px rgba(255,255,255,0.7),
+                inset -5px -5px 10px rgba(0,0,0,0.4),
+                20px 20px 40px rgba(0,0,0,0.6);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* Scalloped Grid Container */
+        .grid-housing {
+            background: linear-gradient(to bottom, #8a8e92, #65696d);
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 
+                inset 2px 2px 5px rgba(0,0,0,0.5),
+                inset -1px -1px 2px rgba(255,255,255,0.3);
+            margin-bottom: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+        }
+
+        /* Button Common Styles */
+        .cell {
+            width: 45px;
+            height: 45px;
+            border-radius: 8px; /* 2. Beveled roundness */
+            cursor: pointer;
+            position: relative;
+            /* Base background and shadow - common to both states */
+            background: #666;
+            box-shadow:
+                0 4px 6px rgba(0,0,0,0.4);
+        }
+
+        /* Off-State pseudo-element (::before) */
+        .cell::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            background: radial-gradient(circle at 30% 30%, #a69bb3 0%, var(--btn-off) 60%, var(--btn-off-shadow) 100%);
+            box-shadow:
+                inset 1px 1px 1px rgba(255,255,255,0.2);
+            opacity: 1;
+            transition: opacity 0.4s ease;
+        }
+
+        /* On-State pseudo-element (::after) */
+        .cell::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            background: radial-gradient(circle at 50% 50%, var(--btn-on-core) 0%, var(--btn-on-rim) 40%, var(--btn-on-glow) 100%);
+            box-shadow:
+                0 0 15px var(--btn-on-glow),
+                inset 1px 1px 2px rgba(255,255,255,0.8);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+
+        /* Show on-state when cell is on */
+        .cell.on::after {
+            opacity: 1;
+        }
+
+        .cell.on::before {
+            opacity: 0;
+        }
+
+        /* Active click state */
+        .cell:active {
+            transform: scale(0.95);
+        }
+
+        /* Logo Area */
+        .logo-area {
+            text-align: center;
+            margin-bottom: 20px;
+            position: relative;
+            height: 60px;
+        }
+        
+        .logo-text {
+            font-family: 'Arial Narrow', sans-serif;
+            font-weight: bold;
+            font-size: 28px;
+            color: #e0e0e0;
+            letter-spacing: 2px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            display: inline-block;
+            position: relative;
+            z-index: 2;
+        }
+        
+        .logo-out {
+            color: #ffd700; /* Yellow/Gold for OUT */
+            font-style: italic;
+        }
+
+        /* Decorative triangle graphic */
+        .logo-graphic {
+            position: absolute;
+            top: 25px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0; 
+            height: 0; 
+            border-left: 10px solid transparent;
+            border-right: 50px solid transparent;
+            border-top: 30px solid rgba(200,200,200,0.3);
+            z-index: 1;
+        }
+
+        /* Controls Section */
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 0 10px;
+            flex-grow: 1;
+        }
+
+        /* Left Control (Purple Button) */
+        .control-left {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .btn-purple {
+            width: 100px;
+            height: 40px;
+            background: linear-gradient(to bottom, #7a6bed, #483d8b);
+            border-radius: 20px;
+            box-shadow: 
+                0 4px 5px rgba(0,0,0,0.5),
+                inset 1px 1px 2px rgba(255,255,255,0.4);
+            border: none;
+            cursor: pointer;
+            margin-bottom: 5px;
+        }
+        
+        .btn-purple:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px 3px rgba(0,0,0,0.5);
+        }
+
+        .label {
+            font-size: 10px;
+            color: #444;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Right Control (Yellow Buttons) */
+        .control-right {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: flex-end;
+        }
+
+        .btn-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-yellow {
+            width: 50px;
+            height: 18px;
+            background: linear-gradient(to bottom, #ffd700, #daa520);
+            border-radius: 10px;
+            box-shadow: 
+                0 2px 3px rgba(0,0,0,0.5),
+                inset 1px 1px 2px rgba(255,255,255,0.6);
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-yellow:active {
+            transform: translateY(1px);
+        }
+
+        .btn-yellow.active-sound {
+             background: linear-gradient(to bottom, #fffacd, #ffd700);
+             box-shadow: 0 0 5px #ffd700;
+        }
+
+        .btn-yellow.active-start {
+             background: linear-gradient(to bottom, #90EE90, #32CD32);
+             box-shadow: 0 0 5px #32CD32;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="table-surface"></div>
+
+    <div class="device">
+        <div class="grid-housing">
+            <div class="grid" id="gameGrid">
+                </div>
+        </div>
+
+        <div class="logo-area">
+            <div class="logo-text">LIGHTS <span class="logo-out">OUT</span></div>
+            <div class="logo-graphic"></div>
+        </div>
+
+        <div class="controls">
+            <div class="control-left">
+                <button class="btn-purple" id="btnRestart"></button>
+                <div class="label">RESTART</div>
+            </div>
+
+            <div class="control-right">
+                <div class="btn-row">
+                    <div class="label">ON/OFF</div>
+                    <button class="btn-yellow"></button>
+                </div>
+                <div class="btn-row">
+                    <div class="label">START</div>
+                    <button class="btn-yellow" id="btnStart"></button>
+                </div>
+                <div class="btn-row">
+                    <div class="label">SOUND</div>
+                    <button class="btn-yellow" id="btnSound"></button>
+                </div>
+                <div class="btn-row">
+                    <div class="label">HELP</div>
+                    <button class="btn-yellow"></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ROWS = 5;
+        const COLS = 5;
+        const gridElement = document.getElementById('gameGrid');
+        let gridState = [];
+        let autoPlayInterval = null;
+        let soundEnabled = false;
+        let manualMode = false;
+        let currentLevel = 1;
+        let soundAutoEnabled = false;
+
+        // Tone.js setup
+        let synth = null;
+
+        // Initialize Tone.js synthesizer
+        function initAudio() {
+            if (!synth) {
+                synth = new Tone.Synth({
+                    oscillator: {
+                        type: 'triangle'
+                    },
+                    envelope: {
+                        attack: 0.01,
+                        decay: 0.1,
+                        sustain: 0.3,
+                        release: 0.4
+                    }
+                }).toDestination();
+            }
+        }
+
+        // Count how many cells are currently lit
+        function countLitCells() {
+            let count = 0;
+            for (let i = 0; i < ROWS; i++) {
+                for (let j = 0; j < COLS; j++) {
+                    if (gridState[i][j] === 1) {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+
+        // Get note from C major scale based on index
+        function getScaleNote(index) {
+            // C major scale notes (C, D, E, F, G, A, B) across multiple octaves
+            const scaleNotes = ['C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5', 'D5', 'E5', 'F5', 'G5', 'A5', 'B5', 'C6'];
+            return scaleNotes[Math.min(index, scaleNotes.length - 1)];
+        }
+
+        // Play button press sound with pitch based on lit cell count
+        function playButtonSound() {
+            if (soundEnabled && synth) {
+                const litCount = countLitCells();
+                // Map 0-25 cells to scale index 0-21 (22 notes in our C major scale)
+                const baseIndex = Math.round((25 - litCount) / 25 * 21);
+
+                // Add random variation (±2 scale steps) so sounds are never identical
+                const variation = Math.floor(Math.random() * 5) - 2; // -2 to +2
+                const finalIndex = Math.max(0, Math.min(21, baseIndex + variation));
+
+                const noteName = getScaleNote(finalIndex);
+                synth.triggerAttackRelease(noteName, '8n');
+            }
+        }
+
+        // Play autoplay move sound (softer)
+        function playAutoPlaySound() {
+            if (soundEnabled && synth) {
+                synth.triggerAttackRelease('G3', '16n');
+            }
+        }
+
+        // Play win animation sound (ascending melody)
+        function playWinSound(step) {
+            if (soundEnabled && synth) {
+                const notes = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5'];
+                const noteIndex = step % notes.length;
+                synth.triggerAttackRelease(notes[noteIndex], '8n');
+            }
+        }
+
+        // Initialize grid in DOM
+        function createGrid() {
+            gridElement.innerHTML = '';
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell off';
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+                    cell.addEventListener('click', async () => {
+                        if (manualMode) {
+                            // Auto-enable sound on first interaction
+                            if (!soundAutoEnabled) {
+                                soundEnabled = true;
+                                soundAutoEnabled = true;
+                                if (Tone.context.state !== 'running') {
+                                    await Tone.start();
+                                }
+                                initAudio();
+                                document.getElementById('btnSound').classList.add('active-sound');
+                            }
+
+                            toggleLights(r, c);
+                            playButtonSound();
+                            checkWinCondition();
+                        }
+                    });
+                    gridElement.appendChild(cell);
+                }
+            }
+        }
+
+        // Initialize Logic State
+        function initGame() {
+            gridState = [];
+            for (let i = 0; i < ROWS; i++) {
+                let row = [];
+                for (let j = 0; j < COLS; j++) {
+                    // Random start state
+                    row.push(Math.random() > 0.5 ? 1 : 0);
+                }
+                gridState.push(row);
+            }
+            render();
+            if (!manualMode) {
+                startAutoPlay();
+            }
+        }
+
+        // Generate puzzle pattern based on level
+        function generatePuzzle(level) {
+            gridState = Array(ROWS).fill().map(() => Array(COLS).fill(0));
+
+            // Different patterns for different levels
+            switch(level) {
+                case 1: // Simple cross
+                    gridState[2][2] = 1;
+                    gridState[1][2] = 1;
+                    gridState[3][2] = 1;
+                    gridState[2][1] = 1;
+                    gridState[2][3] = 1;
+                    break;
+                case 2: // Square frame
+                    for (let i = 0; i < ROWS; i++) {
+                        for (let j = 0; j < COLS; j++) {
+                            if (i === 0 || i === 4 || j === 0 || j === 4) {
+                                gridState[i][j] = 1;
+                            }
+                        }
+                    }
+                    break;
+                case 3: // Checkerboard
+                    for (let i = 0; i < ROWS; i++) {
+                        for (let j = 0; j < COLS; j++) {
+                            if ((i + j) % 2 === 1) {
+                                gridState[i][j] = 1;
+                            }
+                        }
+                    }
+                    break;
+                case 4: // X pattern
+                    for (let i = 0; i < ROWS; i++) {
+                        gridState[i][i] = 1;
+                        gridState[i][4-i] = 1;
+                    }
+                    break;
+                default: // Random for higher levels
+                    for (let i = 0; i < ROWS; i++) {
+                        for (let j = 0; j < COLS; j++) {
+                            gridState[i][j] = Math.random() > 0.6 ? 1 : 0;
+                        }
+                    }
+                    break;
+            }
+            render();
+        }
+
+        // 5. Game Logic: Toggle self and neighbors
+        function toggleLights(r, c) {
+            const moves = [
+                {r:0, c:0},   // self
+                {r:0, c:-1},  // left
+                {r:0, c:1},   // right
+                {r:-1, c:0},  // up
+                {r:1, c:0}    // down
+            ];
+
+            moves.forEach(move => {
+                const nr = r + move.r;
+                const nc = c + move.c;
+                if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+                    gridState[nr][nc] = gridState[nr][nc] === 1 ? 0 : 1;
+                }
+            });
+
+            render();
+        }
+
+        // Update DOM based on state
+        function render() {
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach(cell => {
+                const r = parseInt(cell.dataset.r);
+                const c = parseInt(cell.dataset.c);
+                if (gridState[r][c] === 1) {
+                    cell.classList.remove('off');
+                    cell.classList.add('on');
+                } else {
+                    cell.classList.remove('on');
+                    cell.classList.add('off');
+                }
+            });
+        }
+
+        // Check if all lights are off (win condition)
+        function checkWinCondition() {
+            const allOff = gridState.every(row => row.every(cell => cell === 0));
+            if (allOff && manualMode) {
+                showSuccessPattern();
+            }
+        }
+
+        // Show success animation pattern
+        function showSuccessPattern() {
+            // Disable clicking during animation
+            manualMode = false;
+
+            // Fun success pattern: spiral animation
+            const pattern = [
+                [2,2], [2,3], [1,3], [1,2], [1,1], [2,1], [3,1], [3,2], [3,3], [3,4], [2,4], [1,4], [0,4], [0,3], [0,2], [0,1], [0,0], [1,0], [2,0], [3,0], [4,0], [4,1], [4,2], [4,3], [4,4]
+            ];
+
+            let step = 0;
+            const successInterval = setInterval(() => {
+                if (step < pattern.length) {
+                    const [r, c] = pattern[step];
+                    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+                        gridState[r][c] = 1;
+                        render();
+                        playWinSound(step);
+                    }
+                    step++;
+                } else {
+                    clearInterval(successInterval);
+                    // Wait a moment then advance to next level
+                    setTimeout(() => {
+                        nextLevel();
+                    }, 1000);
+                }
+            }, 100);
+        }
+
+        // Advance to next level
+        function nextLevel() {
+            currentLevel++;
+            manualMode = true; // Stay in manual mode
+            generatePuzzle(currentLevel);
+        }
+
+        // 5. Auto-Play Logic
+        function startAutoPlay() {
+            if (autoPlayInterval) clearInterval(autoPlayInterval);
+            
+            // Randomly click a button every 600ms
+            autoPlayInterval = setInterval(() => {
+                const r = Math.floor(Math.random() * ROWS);
+                const c = Math.floor(Math.random() * COLS);
+                toggleLights(r, c);
+                playAutoPlaySound();
+            }, 600);
+        }
+
+        // 6. Restart Button Logic
+        document.getElementById('btnRestart').addEventListener('click', () => {
+            clearInterval(autoPlayInterval);
+            manualMode = false; // Reset to auto-play mode
+            currentLevel = 1;
+
+            // Reset button states
+            document.getElementById('btnStart').classList.remove('active-start');
+            document.getElementById('btnSound').classList.remove('active-sound');
+
+            // Visual feedback for button press
+            const grid = document.querySelector('.grid-housing');
+            grid.style.opacity = '0.5';
+            setTimeout(() => {
+                grid.style.opacity = '1';
+                initGame();
+            }, 200);
+        });
+
+        // 7. Sound Button (Toggle Visual State)
+        document.getElementById('btnSound').addEventListener('click', async (e) => {
+            soundEnabled = !soundEnabled;
+            e.target.classList.toggle('active-sound');
+
+            if (soundEnabled) {
+                // Initialize audio context on user interaction
+                if (Tone.context.state !== 'running') {
+                    await Tone.start();
+                }
+                initAudio();
+            }
+
+            console.log("Sound enabled:", soundEnabled);
+        });
+
+        // 8. Start Button (Toggle Manual Play Mode)
+        document.getElementById('btnStart').addEventListener('click', (e) => {
+            if (autoPlayInterval) {
+                clearInterval(autoPlayInterval);
+                autoPlayInterval = null;
+            }
+            manualMode = true;
+            currentLevel = 1;
+            generatePuzzle(currentLevel);
+            e.target.classList.add('active-start'); // Visual feedback
+
+            // Remove active state from other buttons
+            document.getElementById('btnSound').classList.remove('active-sound');
+        });
+
+        // Start
+        createGrid();
+        initGame();
+
+    </script>
+</body>
+</html>
