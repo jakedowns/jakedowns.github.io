@@ -362,6 +362,7 @@
         const mouse = { x: 0.5, y: 0.5 };
         const lastMouse = { x: 0.5, y: 0.5 };
         const trailDots = [];
+        const growingSplats = []; // Track splats that grow over time
         
         // Trail checkbox
         document.getElementById('showTrail').addEventListener('change', (e) => {
@@ -371,16 +372,33 @@
             }
         });
 
+        function getPointerPosition(e) {
+            // Handle both mouse and touch events
+            if (e.touches && e.touches.length > 0) {
+                return {
+                    x: e.touches[0].clientX,
+                    y: e.touches[0].clientY
+                };
+            } else {
+                return {
+                    x: e.clientX,
+                    y: e.clientY
+                };
+            }
+        }
+
         function onPointerDown(e) {
+            e.preventDefault(); // Prevent scrolling on touch devices
             isDragging = true;
             document.body.classList.add('dragging');
-            const x = e.clientX || (e.touches && e.touches[0].clientX);
-            const y = e.clientY || (e.touches && e.touches[0].clientY);
+            const pos = getPointerPosition(e);
+            const x = pos.x;
+            const y = pos.y;
             mouse.x = x / window.innerWidth;
             mouse.y = 1.0 - (y / window.innerHeight);
             lastMouse.x = mouse.x;
             lastMouse.y = mouse.y;
-            
+
             if (showTrail) {
                 addTrailDot(x, y);
             }
@@ -388,30 +406,33 @@
 
         function onPointerMove(e) {
             if (!isDragging) return;
-            
-            const x = e.clientX || (e.touches && e.touches[0].clientX);
-            const y = e.clientY || (e.touches && e.touches[0].clientY);
-            
+            e.preventDefault(); // Prevent scrolling on touch devices
+
+            const pos = getPointerPosition(e);
+            const x = pos.x;
+            const y = pos.y;
+
             lastMouse.x = mouse.x;
             lastMouse.y = mouse.y;
             mouse.x = x / window.innerWidth;
             mouse.y = 1.0 - (y / window.innerHeight);
-            
+
             if (showTrail) {
                 addTrailDot(x, y);
             }
         }
 
-        function onPointerUp() {
+        function onPointerUp(e) {
             if (!isDragging) return;
+            e.preventDefault(); // Prevent default touch behavior
             isDragging = false;
             document.body.classList.remove('dragging');
-            
+
             // Calculate final velocity vector
             const dx = (mouse.x - lastMouse.x) * 60;
             const dy = (mouse.y - lastMouse.y) * 60;
             const velocity = Math.sqrt(dx * dx + dy * dy);
-            
+
             // Add residual inertia splats along trajectory
             const steps = Math.min(Math.floor(velocity * 2), 15);
             for (let i = 0; i < steps; i++) {
@@ -419,16 +440,19 @@
                 const decay = 1.0 - (t * 0.7); // Decay over distance
                 const px = mouse.x + dx * t * 0.05;
                 const py = mouse.y + dy * t * 0.05;
-                
+
                 setTimeout(() => {
                     splat(px, py, dx * decay, dy * decay);
                     splatInk(px, py, 0.4 * decay);
                 }, i * 30);
             }
-            
+
+            // Add growing splat at final position
+            addGrowingSplat(mouse.x, mouse.y);
+
             // Start transition phase
             isTransitioning = true;
-            
+
             // Clear trail dots
             clearTrailDots();
         }
@@ -447,12 +471,44 @@
             trailDots.length = 0;
         }
 
+        function addGrowingSplat(x, y) {
+            growingSplats.push({
+                x: x,
+                y: y,
+                startTime: Date.now(),
+                radius: 0.006, // Start with base radius
+                maxRadius: 0.06, // Grow to this size
+                growthRate: 0.001, // How fast it grows per frame
+                lastGrowthTime: Date.now()
+            });
+        }
+
+        function updateGrowingSplats() {
+            const currentTime = Date.now();
+            growingSplats.forEach((splat, index) => {
+                // Grow the splat over time
+                if (currentTime - splat.lastGrowthTime > 50) { // Grow every 50ms
+                    splat.radius += splat.growthRate;
+                    splat.lastGrowthTime = currentTime;
+
+                    // Add ink at the growing position
+                    const intensity = Math.min(0.3, 0.8 * (splat.radius / splat.maxRadius));
+                    splatInkWithRadius(splat.x, splat.y, splat.radius, intensity);
+
+                    // Remove if it reaches max size
+                    if (splat.radius >= splat.maxRadius) {
+                        growingSplats.splice(index, 1);
+                    }
+                }
+            });
+        }
+
         window.addEventListener('mousedown', onPointerDown);
         window.addEventListener('mousemove', onPointerMove);
         window.addEventListener('mouseup', onPointerUp);
-        window.addEventListener('touchstart', onPointerDown);
-        window.addEventListener('touchmove', onPointerMove);
-        window.addEventListener('touchend', onPointerUp);
+        window.addEventListener('touchstart', onPointerDown, { passive: false });
+        window.addEventListener('touchmove', onPointerMove, { passive: false });
+        window.addEventListener('touchend', onPointerUp, { passive: false });
 
         // Fluid simulation functions
         function splat(x, y, dx, dy) {
@@ -473,19 +529,27 @@
         }
 
         function splatInk(x, y, intensity) {
+            splatInkWithRadius(x, y, 0.006, intensity);
+        }
+
+        function splatInkWithRadius(x, y, radius, intensity) {
             const aspect = window.innerWidth / window.innerHeight;
-            
+
             inkSplatMat.uniforms.uAspect.value.set(aspect, 1);
             inkSplatMat.uniforms.uTarget.value = ink[0].texture;
             inkSplatMat.uniforms.uPoint.value.set(x, y);
+            inkSplatMat.uniforms.uRadius.value = radius;
             inkSplatMat.uniforms.uIntensity.value = intensity;
-            
+
             const inkQuad = new THREE.Mesh(quadGeo, inkSplatMat);
             const tempScene = new THREE.Scene();
             tempScene.add(inkQuad);
             renderer.setRenderTarget(ink[1]);
             renderer.render(tempScene, camera);
             swapInk();
+
+            // Reset radius back to default
+            inkSplatMat.uniforms.uRadius.value = 0.006;
         }
 
         function swapVelocity() {
@@ -572,19 +636,22 @@
         // Animation loop
         function animate() {
             requestAnimationFrame(animate);
-            
+
             // Add velocity and ink while dragging
             if (isDragging) {
                 const dx = (mouse.x - lastMouse.x) * 25;
                 const dy = (mouse.y - lastMouse.y) * 25;
-                
+
                 if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
                     splat(mouse.x, mouse.y, dx, dy);
                     splatInk(mouse.x, mouse.y, 0.5); // Stronger ink for tear effect
                     globalInkLevel += 0.003;
                 }
             }
-            
+
+            // Update growing splats
+            updateGrowingSplats();
+
             // Update fluid simulation
             step(0.016);
             

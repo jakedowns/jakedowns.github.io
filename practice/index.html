@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>jakedowns.github.io Practice Directory Index</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+        }
+
+        .sidebar {
+            width: 250px;
+            background-color: #f4f4f4;
+            border-right: 1px solid #ddd;
+            overflow-y: auto;
+            padding: 20px;
+            padding-top: 100px;
+        }
+
+        .sidebar h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .sidebar ul {
+            list-style: none;
+        }
+
+        .sidebar li {
+            margin-bottom: 8px;
+        }
+
+        .sidebar a {
+            display: block;
+            padding: 8px 12px;
+            text-decoration: none;
+            color: #333;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+
+        .sidebar a:hover {
+            background-color: #e0e0e0;
+        }
+
+        .sidebar a.active {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .content {
+            flex: 1;
+            background-color: #fff;
+            position: relative;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100vh;
+            border: none;
+        }
+
+        .sidebar-toggle {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 1000;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+
+        .sidebar-toggle:hover {
+            background-color: #0056b3;
+        }
+
+        .sidebar.hidden {
+            display: none;
+        }
+
+        .sidebar-toggle.sidebar-hidden {
+            left: 20px;
+        }
+
+        .welcome-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #666;
+            font-size: 24px;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .welcome-message.hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <button class="sidebar-toggle" onclick="toggleSidebar()">☰ Toggle Sidebar</button>
+    <div class="sidebar">
+        <h2>Practice Files</h2>
+        <ul>
+            <li><a href="audio.html" onclick="loadPage('audio.html')">audio.html</a></li>
+            <li><a href="career-picker.html" onclick="loadPage('career-picker.html')">career-picker.html</a></li>
+            <li><a href="fluid-grok-02.html" onclick="loadPage('fluid-grok-02.html')">fluid-grok-02.html</a></li>
+            <li><a href="gen01.html" onclick="loadPage('gen01.html')">gen01.html</a></li>
+            <li><a href="gen01b.html" onclick="loadPage('gen01b.html')">gen01b.html</a></li>
+            <li><a href="gen01c.html" onclick="loadPage('gen01c.html')">gen01c.html</a></li>
+            <li><a href="gen02.html" onclick="loadPage('gen02.html')">gen02.html</a></li>
+            <li><a href="gen03.html" onclick="loadPage('gen03.html')">gen03.html</a></li>
+            <li><a href="gen03b.html" onclick="loadPage('gen03b.html')">gen03b.html</a></li>
+            <li><a href="gen04.html" onclick="loadPage('gen04.html')">gen04.html</a></li>
+            <li><a href="gen04b.html" onclick="loadPage('gen04b.html')">gen04b.html</a></li>
+            <li><a href="gen05.html" onclick="loadPage('gen05.html')">gen05.html</a></li>
+            <li><a href="gen06.html" onclick="loadPage('gen06.html')">gen06.html</a></li>
+            <li><a href="hfb.html" onclick="loadPage('hfb.html')">hfb.html</a></li>
+            <li><a href="liquid-wave-reveal.html" onclick="loadPage('liquid-wave-reveal.html')">liquid-wave-reveal.html</a></li>
+            <li><a href="mediapipe.html" onclick="loadPage('mediapipe.html')">mediapipe.html</a></li>
+            <li><a href="mediapipe2.html" onclick="loadPage('mediapipe2.html')">mediapipe2.html</a></li>
+            <li><a href="mediapipe3.html" onclick="loadPage('mediapipe3.html')">mediapipe3.html</a></li>
+            <li><a href="p5-series.html" onclick="loadPage('p5-series.html')">p5-series.html</a></li>
+            <li><a href="paper.html" onclick="loadPage('paper.html')">paper.html</a></li>
+            <li><a href="ripples-grok-01.html" onclick="loadPage('ripples-grok-01.html')">ripples-grok-01.html</a></li>
+            <li><a href="synth.html" onclick="loadPage('synth.html')">synth.html</a></li>
+            <li><a href="three-lights.html" onclick="loadPage('three-lights.html')">three-lights.html</a></li>
+            <li><a href="throwback.html" onclick="loadPage('throwback.html')">throwback.html</a></li>
+            <li><a href="tweet-board.html" onclick="loadPage('tweet-board.html')">tweet-board.html</a></li>
+            <li><a href="video-rainbow.html" onclick="loadPage('video-rainbow.html')">video-rainbow.html</a></li>
+            <li><a href="waves.html" onclick="loadPage('waves.html')">waves.html</a></li>
+        </ul>
+    </div>
+    <div class="content">
+        <div class="welcome-message" id="welcomeMessage">
+            Select a demo file on the left to get started
+        </div>
+        <iframe id="contentFrame" src=""></iframe>
+    </div>
+
+    <script>
+        function loadPage(url) {
+            document.getElementById('contentFrame').src = url;
+
+            // Hide welcome message
+            document.getElementById('welcomeMessage').classList.add('hidden');
+
+            // Remove active class from all links
+            const links = document.querySelectorAll('.sidebar a');
+            links.forEach(link => link.classList.remove('active'));
+
+            // Add active class to clicked link
+            event.target.classList.add('active');
+
+            // Prevent default link behavior
+            event.preventDefault();
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.querySelector('.sidebar');
+            const toggleBtn = document.querySelector('.sidebar-toggle');
+
+            sidebar.classList.toggle('hidden');
+            toggleBtn.classList.toggle('sidebar-hidden');
+
+            if (sidebar.classList.contains('hidden')) {
+                toggleBtn.textContent = '☰ Show Sidebar';
+            } else {
+                toggleBtn.textContent = '☰ Toggle Sidebar';
+            }
+        }
+    </script>
+</body>
+</html>

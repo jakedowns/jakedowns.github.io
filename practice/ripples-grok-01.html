@@ -470,13 +470,34 @@
                 usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             });
 
-            // Mouse event handlers
+            // Mouse and touch event handlers
             canvas.addEventListener('mousedown', () => { mousePressed = true; });
             canvas.addEventListener('mouseup', () => { mousePressed = false; });
             canvas.addEventListener('mousemove', (e) => {
                 const rect = canvas.getBoundingClientRect();
                 mousePos.x = (e.clientX - rect.left) / rect.width;
                 mousePos.y = 1.0 - (e.clientY - rect.top) / rect.height;
+            });
+
+            // Touch event handlers
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                mousePressed = true;
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                mousePos.x = (touch.clientX - rect.left) / rect.width;
+                mousePos.y = 1.0 - (touch.clientY - rect.top) / rect.height;
+            });
+            canvas.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                mousePressed = false;
+            });
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                mousePos.x = (touch.clientX - rect.left) / rect.width;
+                mousePos.y = 1.0 - (touch.clientY - rect.top) / rect.height;
             });
 
             function render() {
