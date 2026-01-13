@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Career Pathfinder</title>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --success: #10b981;
+            --danger: #ef4444;
+            --dark: #0f172a;
+            --light: #1e293b;
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #cbd5e1;
+            --border: #475569;
+            --shadow: rgba(0, 0, 0, 0.3);
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* Container & Header */
+        .app-container {
+            width: 100%;
+            max-width: 600px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        h1 { margin-bottom: 0.5rem; }
+        .subtitle { color: var(--text-secondary); margin-bottom: 2rem; }
+
+        /* Navigation */
+        .nav-menu {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+            font-size: 1rem;
+        }
+
+        .btn:active { transform: scale(0.98); }
+        .btn-primary { background-color: var(--primary); color: white; }
+        .btn-outline { background-color: transparent; border: 2px solid var(--primary); color: var(--primary); }
+        .btn-success { background-color: var(--success); color: white; }
+        .btn-danger { background-color: var(--danger); color: white; }
+
+        /* Card Styles */
+        .card-area {
+            position: relative;
+            height: 300px;
+            perspective: 1000px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            width: 100%;
+            height: 100%;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px var(--shadow);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
+            position: absolute;
+            top: 0;
+            left: 0;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            backface-visibility: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .card h2 { font-size: 1.8rem; margin: 0; color: var(--text-primary); }
+        .card p { color: var(--text-secondary); margin-top: 10px; }
+        
+        /* Duel Mode Specifics */
+        .duel-container {
+            display: flex;
+            gap: 15px;
+            height: 300px;
+            width: 100%;
+        }
+        .duel-card {
+            width: calc(50% - 7.5px); /* Fixed 50/50 width accounting for gap */
+            cursor: pointer;
+            border: 2px solid transparent;
+            position: static !important;
+            flex-shrink: 0; /* Prevent shrinking */
+        }
+        .duel-card h2 {
+            font-size: clamp(1rem, 4vw, 1.8rem); /* Scale text based on viewport */
+            line-height: 1.2;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            hyphens: auto;
+        }
+        .duel-card:hover { border-color: var(--primary); transform: translateY(-5px); }
+
+        .score-display {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: var(--bg-secondary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--text-primary);
+            box-shadow: 0 2px 8px var(--shadow);
+            z-index: 10;
+            border: 1px solid var(--border);
+        }
+
+        .duel-controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .expand-toggle {
+            text-align: center;
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+
+        .expand-toggle:hover {
+            opacity: 0.8;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .control-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Results List */
+        .results-list {
+            list-style: none;
+            padding: 0;
+            text-align: left;
+            width: 100%;
+        }
+
+        .result-item {
+            background: var(--bg-card);
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px var(--shadow);
+            border: 1px solid var(--border);
+        }
+
+        .rank-badge {
+            background: var(--primary);
+            color: white;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.8rem;
+            margin-right: 10px;
+        }
+
+        .hidden { display: none !important; }
+
+        /* Animation Classes */
+        .swipe-left { transform: translateX(-150%) rotate(-20deg); opacity: 0; }
+        .swipe-right { transform: translateX(150%) rotate(20deg); opacity: 0; }
+
+        /* Arc Swiping Styles */
+        .card.dragging {
+            transition: none !important;
+            cursor: grabbing;
+            z-index: 1000;
+        }
+
+        .card.dragging.swipe-hint-left {
+            transform: rotate(-15deg) translateX(-50px);
+        }
+
+        .card.dragging.swipe-hint-right {
+            transform: rotate(15deg) translateX(50px);
+        }
+
+        .swipe-hint-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 999;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .swipe-hint-overlay.visible {
+            opacity: 1;
+        }
+
+        .swipe-hint-left {
+            position: fixed;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--danger);
+            font-size: 3rem;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+        }
+
+        .swipe-hint-right {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--success);
+            font-size: 3rem;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+        }
+
+        .swipe-hint-left.visible {
+            opacity: 1;
+        }
+
+        .swipe-hint-right.visible {
+            opacity: 1;
+        }
+
+        /* Editor Styles */
+        .add-job-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        #new-job-input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            font-size: 1rem;
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+
+        #new-job-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .jobs-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+
+        .job-item {
+            background: var(--bg-card);
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px var(--shadow);
+            border: 1px solid var(--border);
+        }
+
+        .job-info {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .job-score {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .score-value {
+            font-weight: bold;
+            color: var(--text-primary);
+        }
+
+        .job-score-input {
+            width: 80px;
+            padding: 4px 8px;
+            border: 2px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.9rem;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            text-align: center;
+        }
+
+        .job-score-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .score-edit-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .job-text {
+            flex: 1;
+            font-size: 1rem;
+            font-weight: 500;
+        }
+
+        .job-edit-input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 2px solid var(--border);
+            border-radius: 6px;
+            font-size: 1rem;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .job-edit-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .job-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.9rem;
+            border-radius: 6px;
+        }
+
+        .editor-controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <h1>Career Pathfinder</h1>
+    <p class="subtitle" id="subtitle">Select a mode to begin</p>
+
+    <div id="menu" class="nav-menu">
+        <button class="btn btn-primary" onclick="startSwipeMode()">🔥 Swipe Mode</button>
+        <button class="btn btn-outline" onclick="startDuelMode()">⚔️ Head-to-Head</button>
+        <button class="btn btn-outline" onclick="startEditorMode()">⚙️ Manage Jobs</button>
+    </div>
+
+    <!-- Swipe Hint Overlays -->
+    <div class="swipe-hint-overlay" id="swipe-hint-overlay">
+        <div class="swipe-hint-left">✕</div>
+        <div class="swipe-hint-right">♥</div>
+    </div>
+
+    <div id="swipe-ui" class="hidden">
+        <div class="card-area" id="swipe-card-container">
+            </div>
+        <div class="controls">
+            <button class="control-btn btn-danger" onclick="handleSwipe('left')">✕</button>
+            <button class="control-btn btn-success" onclick="handleSwipe('right')">♥</button>
+        </div>
+    </div>
+
+    <div id="duel-ui" class="hidden">
+        <div class="duel-container">
+            <div class="card duel-card" onclick="handleDuelSelection('A')">
+                <div class="score-display" id="score-a">0</div>
+                <h2 id="duel-text-a">Option A</h2>
+                <p>Select to Win</p>
+            </div>
+            <div class="card duel-card" onclick="handleDuelSelection('B')">
+                <div class="score-display" id="score-b">0</div>
+                <h2 id="duel-text-b">Option B</h2>
+                <p>Select to Win</p>
+            </div>
+        </div>
+        <div class="duel-controls">
+            <button class="btn btn-outline" onclick="skipDuelRound()">⏭️ Skip Round</button>
+            <button class="btn btn-primary" onclick="showDuelResults()">Finish Early & See Rank</button>
+        </div>
+        <p style="margin-top:20px; color:var(--text-secondary);">Round <span id="round-counter">1</span></p>
+    </div>
+
+    <div id="results-ui" class="hidden">
+        <h2 id="result-title">Your Results</h2>
+        <ul class="results-list" id="results-list"></ul>
+        <button class="btn btn-primary" onclick="location.reload()">Start Over</button>
+    </div>
+
+    <div id="editor-ui" class="hidden">
+        <h2>Job Editor</h2>
+        <p class="subtitle">Add, edit, or remove career options</p>
+
+        <div class="add-job-form">
+            <input type="text" id="new-job-input" placeholder="Enter new job title" maxlength="50">
+            <button class="btn btn-success" onclick="addJob()">Add Job</button>
+        </div>
+
+        <div class="jobs-list" id="jobs-list">
+            <!-- Jobs will be populated here -->
+        </div>
+
+        <div class="editor-controls">
+            <button class="btn btn-primary" onclick="saveJobsToStorage()">💾 Save Changes</button>
+            <button class="btn btn-outline" onclick="cancelEditor()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Data Source
+    const initialJobs = [
+        "Administrative Office Technology", "Automotive Technology", "Building Construction Technology",
+        "Collision Repair Technology", "Computer Information Systems", "Criminal Justice: Correctional Officer",
+        "Diesel Powered Equipment Technology", "Heavy Equipment Operator", "HVAC/Refrigeration",
+        "Industrial Electricity", "Industrial Maintenance/Integrated Automation", "Machine Tool Technology",
+        "Meat Processing Technology", "Millwright Skills", "Nutrition and Foodservice Professional Training",
+        "Off-Road Diesel Technology", "Patient Care Technology/Medical Assisting", "Pipefitting and Plumbing Technology",
+        "Practical Nursing", "Retail, Hospitality and Tourism Technology", "Truck Driving", "Welding"
+    ];
+
+    // State
+    let jobs = [];
+    let likedJobs = [];
+    let currentIndex = 0;
+
+    // Duel State
+    let duelItems = [];
+    let currentPair = [];
+    let roundCount = 0;
+
+    // Editor State
+    let editingIndex = -1;
+    let scoreEditingIndex = -1;
+
+    // Persistent Scoring
+    let jobScores = {};
+
+    // Swipe State
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let currentCard = null;
+    let centerX = window.innerWidth / 2;
+    let centerY = window.innerHeight / 2;
+
+    // Duel Scoring State
+    let duelScores = {};
+
+    // --- Mode: Swipe ---
+
+    function startSwipeMode() {
+        jobs = loadJobsFromStorage();
+        jobScores = loadScoresFromStorage();
+        currentIndex = 0;
+        likedJobs = [];
+
+        if (jobs.length === 0) {
+            alert('No jobs available. Please add some jobs in the editor first.');
+            return;
+        }
+
+        document.getElementById('menu').classList.add('hidden');
+        document.getElementById('swipe-ui').classList.remove('hidden');
+        document.getElementById('subtitle').innerText = "Swipe Right (+1) for Like, Left (-1) for Dislike";
+
+        renderSwipeCard();
+    }
+
+    function renderSwipeCard() {
+        const container = document.getElementById('swipe-card-container');
+        container.innerHTML = ''; // Clear previous
+
+        if (currentIndex >= jobs.length) {
+            showSwipeResults();
+            return;
+        }
+
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `<h2>${jobs[currentIndex]}</h2><p>Swipe to decide</p>`;
+
+        // Add drag event listeners
+        addDragListeners(card);
+
+        container.appendChild(card);
+    }
+
+    function handleSwipe(direction) {
+        const card = document.querySelector('#swipe-card-container .card');
+        if (!card) return;
+
+        const currentJob = jobs[currentIndex];
+
+        if (direction === 'right') {
+            card.classList.add('swipe-right');
+            updateJobScore(currentJob, 1); // +1 for like
+            likedJobs.push(currentJob);
+        } else {
+            card.classList.add('swipe-left');
+            updateJobScore(currentJob, -1); // -1 for dislike
+        }
+
+        setTimeout(() => {
+            currentIndex++;
+            renderSwipeCard();
+        }, 300);
+    }
+
+    function showSwipeResults() {
+        document.getElementById('swipe-ui').classList.add('hidden');
+        document.getElementById('results-ui').classList.remove('hidden');
+        document.getElementById('subtitle').innerText = "Here is your shortlist";
+        document.getElementById('result-title').innerText = "Matches (" + likedJobs.length + ")";
+
+        const list = document.getElementById('results-list');
+        list.innerHTML = '';
+
+        if(likedJobs.length === 0) {
+            list.innerHTML = '<li class="result-item">No matches found. Try again?</li>';
+            return;
+        }
+
+        likedJobs.forEach((job) => {
+            const li = document.createElement('li');
+            li.className = 'result-item';
+            const score = jobScores[job] || 0;
+            li.innerHTML = `<span>${job}</span> <small style="color:var(--text-secondary)">Score: ${score}</small>`;
+            list.appendChild(li);
+        });
+    }
+
+    // --- Mode: Head-to-Head (Elo Ranking) ---
+
+    function startDuelMode() {
+        const loadedJobs = loadJobsFromStorage();
+
+        if (loadedJobs.length < 2) {
+            alert('Need at least 2 jobs for head-to-head mode. Please add more jobs in the editor.');
+            return;
+        }
+
+        // Load persistent scores
+        jobScores = loadScoresFromStorage();
+
+        // Initialize objects with an Elo rating of 1000
+        duelItems = loadedJobs.map(job => ({
+            name: job,
+            rating: 1000,
+            wins: 0,
+            matches: 0,
+            score: jobScores[job] || 0
+        }));
+
+        // Initialize visual scores from persistent storage
+        duelScores = {};
+        loadedJobs.forEach(job => {
+            duelScores[job] = jobScores[job] || 0;
+        });
+
+        roundCount = 0;
+
+        document.getElementById('menu').classList.add('hidden');
+        document.getElementById('duel-ui').classList.remove('hidden');
+        document.getElementById('subtitle').innerText = "Pick your preferred career";
+
+        nextDuelRound();
+    }
+
+    function nextDuelRound() {
+        roundCount++;
+        document.getElementById('round-counter').innerText = roundCount;
+
+        // Logic: Pick two random items, but try to prioritize items with fewer matches for fairness
+        // For simplicity in this demo, we pick two totally random distinct items
+        let idx1 = Math.floor(Math.random() * duelItems.length);
+        let idx2 = Math.floor(Math.random() * duelItems.length);
+
+        while (idx1 === idx2) {
+            idx2 = Math.floor(Math.random() * duelItems.length);
+        }
+
+        currentPair = [duelItems[idx1], duelItems[idx2]];
+
+        document.getElementById('duel-text-a').innerText = currentPair[0].name;
+        document.getElementById('duel-text-b').innerText = currentPair[1].name;
+
+        // Update visual scores
+        document.getElementById('score-a').innerText = duelScores[currentPair[0].name];
+        document.getElementById('score-b').innerText = duelScores[currentPair[1].name];
+    }
+
+    function handleDuelSelection(choice) {
+        const winner = choice === 'A' ? currentPair[0] : currentPair[1];
+        const loser = choice === 'A' ? currentPair[1] : currentPair[0];
+
+        // Update persistent scores (+1 for winner, -1 for loser)
+        updateJobScore(winner.name, 1);
+        updateJobScore(loser.name, -1);
+
+        // Update visual scores
+        duelScores[winner.name] += 1;
+        duelScores[loser.name] -= 1;
+
+        // Elo Rating Calculation
+        const K = 32; // Volatility factor
+        const expectedScoreWinner = 1 / (1 + 10 ** ((loser.rating - winner.rating) / 400));
+        const expectedScoreLoser = 1 / (1 + 10 ** ((winner.rating - loser.rating) / 400));
+
+        winner.rating = winner.rating + K * (1 - expectedScoreWinner);
+        loser.rating = loser.rating + K * (0 - expectedScoreLoser);
+
+        winner.matches++;
+        winner.wins++;
+        loser.matches++;
+
+        // Stop automatically after enough data (e.g., 20 rounds) or let user continue
+        if (roundCount >= 20) {
+             // Optional: Auto-finish after 20 rounds
+             // showDuelResults();
+        }
+
+        nextDuelRound();
+    }
+
+    function skipDuelRound() {
+        // Reduce both options' scores by 1 (persistent)
+        updateJobScore(currentPair[0].name, -1);
+        updateJobScore(currentPair[1].name, -1);
+
+        // Update visual scores
+        duelScores[currentPair[0].name] -= 1;
+        duelScores[currentPair[1].name] -= 1;
+
+        // Move to next round
+        nextDuelRound();
+    }
+
+    function showDuelResults(showAll = false) {
+        document.getElementById('duel-ui').classList.add('hidden');
+        document.getElementById('results-ui').classList.remove('hidden');
+        document.getElementById('subtitle').innerText = "Calculated based on your choices";
+        document.getElementById('result-title').innerText = "Ranked Preferences";
+
+        // Sort by Rating (High to Low)
+        duelItems.sort((a, b) => b.rating - a.rating);
+
+        const list = document.getElementById('results-list');
+        list.innerHTML = '';
+
+        const itemsToShow = showAll ? duelItems.length : 10;
+
+        duelItems.slice(0, itemsToShow).forEach((item, index) => {
+            const li = document.createElement('li');
+            li.className = 'result-item';
+            li.innerHTML = `<span><span class="rank-badge">${index + 1}</span> ${item.name}</span> <small style="color:var(--text-secondary)">Rating: ${Math.round(item.rating)}</small>`;
+            list.appendChild(li);
+        });
+
+        if (duelItems.length > 10) {
+             const footer = document.createElement('div');
+             footer.style.padding = "10px";
+             footer.style.color = "var(--primary)";
+             footer.style.cursor = "pointer";
+             footer.style.textDecoration = "underline";
+             footer.className = "expand-toggle";
+
+             if (showAll) {
+                 footer.innerText = "Show less";
+                 footer.onclick = () => showDuelResults(false);
+             } else {
+                 footer.innerText = "Show all " + (duelItems.length - 10) + " more";
+                 footer.onclick = () => showDuelResults(true);
+             }
+
+             list.appendChild(footer);
+        }
+    }
+
+    // --- localStorage Functions ---
+
+    function loadJobsFromStorage() {
+        const stored = localStorage.getItem('careerPickerJobs');
+        return stored ? JSON.parse(stored) : [...initialJobs];
+    }
+
+    function saveJobsToStorage(jobsArray) {
+        localStorage.setItem('careerPickerJobs', JSON.stringify(jobsArray));
+    }
+
+    function loadScoresFromStorage() {
+        const stored = localStorage.getItem('careerPickerScores');
+        return stored ? JSON.parse(stored) : {};
+    }
+
+    function saveScoresToStorage(scores) {
+        localStorage.setItem('careerPickerScores', JSON.stringify(scores));
+    }
+
+    function updateJobScore(jobName, scoreChange) {
+        if (!jobScores[jobName]) {
+            jobScores[jobName] = 0;
+        }
+        jobScores[jobName] += scoreChange;
+        saveScoresToStorage(jobScores);
+    }
+
+    // --- Editor Mode ---
+
+    function startEditorMode() {
+        jobs = loadJobsFromStorage();
+        jobScores = loadScoresFromStorage();
+        editingIndex = -1;
+
+        document.getElementById('menu').classList.add('hidden');
+        document.getElementById('editor-ui').classList.remove('hidden');
+        document.getElementById('subtitle').innerText = "Manage your career options";
+
+        renderJobList();
+    }
+
+    function renderJobList() {
+        const container = document.getElementById('jobs-list');
+        container.innerHTML = '';
+
+        jobs.forEach((job, index) => {
+            const item = document.createElement('div');
+            item.className = 'job-item';
+
+            const currentScore = jobScores[job] || 0;
+
+            if (editingIndex === index) {
+                // Job name edit mode
+                item.innerHTML = `
+                    <input type="text" class="job-edit-input" value="${job}" maxlength="50" id="edit-input-${index}">
+                    <div class="job-controls">
+                        <button class="btn btn-small btn-success" onclick="saveEdit(${index})">✓</button>
+                        <button class="btn btn-small btn-outline" onclick="cancelEdit()">✕</button>
+                    </div>
+                `;
+            } else if (scoreEditingIndex === index) {
+                // Score edit mode
+                item.innerHTML = `
+                    <div class="job-info">
+                        <span class="job-text">${job}</span>
+                        <div class="score-edit-container">
+                            <span class="job-score">Score: </span>
+                            <input type="number" class="job-score-input" value="${currentScore}" id="score-input-${index}">
+                        </div>
+                    </div>
+                    <div class="job-controls">
+                        <button class="btn btn-small btn-success" onclick="saveScoreEdit(${index})">✓</button>
+                        <button class="btn btn-small btn-outline" onclick="cancelScoreEdit()">✕</button>
+                    </div>
+                `;
+            } else {
+                // Display mode
+                item.innerHTML = `
+                    <div class="job-info">
+                        <span class="job-text">${job}</span>
+                        <span class="job-score">Score: <span class="score-value" id="score-display-${index}">${currentScore}</span></span>
+                    </div>
+                    <div class="job-controls">
+                        <button class="btn btn-small btn-outline" onclick="startScoreEdit(${index})">📊</button>
+                        <button class="btn btn-small btn-outline" onclick="startEdit(${index})">✏️</button>
+                        <button class="btn btn-small btn-danger" onclick="deleteJob(${index})">🗑️</button>
+                    </div>
+                `;
+            }
+
+            container.appendChild(item);
+        });
+    }
+
+    function addJob() {
+        const input = document.getElementById('new-job-input');
+        const newJob = input.value.trim();
+
+        if (!newJob) {
+            alert('Please enter a job title');
+            return;
+        }
+
+        if (jobs.includes(newJob)) {
+            alert('This job already exists');
+            return;
+        }
+
+        jobs.push(newJob);
+        input.value = '';
+        renderJobList();
+    }
+
+    function startEdit(index) {
+        editingIndex = index;
+        renderJobList();
+        // Focus the input after render
+        setTimeout(() => {
+            const input = document.getElementById(`edit-input-${index}`);
+            if (input) {
+                input.focus();
+                input.select();
+            }
+        }, 10);
+    }
+
+    function saveEdit(index) {
+        const input = document.getElementById(`edit-input-${index}`);
+        const newValue = input.value.trim();
+
+        if (!newValue) {
+            alert('Job title cannot be empty');
+            return;
+        }
+
+        if (jobs.includes(newValue) && jobs.indexOf(newValue) !== index) {
+            alert('This job already exists');
+            return;
+        }
+
+        jobs[index] = newValue;
+        editingIndex = -1;
+        renderJobList();
+    }
+
+    function cancelEdit() {
+        editingIndex = -1;
+        renderJobList();
+    }
+
+    function startScoreEdit(index) {
+        scoreEditingIndex = index;
+        renderJobList();
+        // Focus the score input after render
+        setTimeout(() => {
+            const input = document.getElementById(`score-input-${index}`);
+            if (input) {
+                input.focus();
+                input.select();
+            }
+        }, 10);
+    }
+
+    function saveScoreEdit(index) {
+        const input = document.getElementById(`score-input-${index}`);
+        const newScore = parseInt(input.value) || 0;
+
+        jobScores[jobs[index]] = newScore;
+        saveScoresToStorage(jobScores);
+
+        scoreEditingIndex = -1;
+        renderJobList();
+    }
+
+    function cancelScoreEdit() {
+        scoreEditingIndex = -1;
+        renderJobList();
+    }
+
+    function deleteJob(index) {
+        if (confirm(`Delete "${jobs[index]}"?`)) {
+            jobs.splice(index, 1);
+            renderJobList();
+        }
+    }
+
+    function saveJobsToStorage() {
+        localStorage.setItem('careerPickerJobs', JSON.stringify(jobs));
+        alert('Jobs saved successfully!');
+        cancelEditor();
+    }
+
+    function cancelEditor() {
+        document.getElementById('editor-ui').classList.add('hidden');
+        document.getElementById('menu').classList.remove('hidden');
+        document.getElementById('subtitle').innerText = "Select a mode to begin";
+    }
+
+    // Allow Enter key to add jobs
+    document.getElementById('new-job-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            addJob();
+        }
+    });
+
+    // --- Arc Swiping Functions ---
+
+    function addDragListeners(card) {
+        // Mouse events
+        card.addEventListener('mousedown', startDrag);
+        document.addEventListener('mousemove', drag);
+        document.addEventListener('mouseup', endDrag);
+
+        // Touch events
+        card.addEventListener('touchstart', startDrag, { passive: false });
+        document.addEventListener('touchmove', drag, { passive: false });
+        document.addEventListener('touchend', endDrag, { passive: false });
+    }
+
+    function startDrag(e) {
+        e.preventDefault();
+        isDragging = true;
+        currentCard = e.target.closest('.card');
+
+        const clientX = e.type === 'mousedown' ? e.clientX : e.touches[0].clientX;
+        const clientY = e.type === 'mousedown' ? e.clientY : e.touches[0].clientY;
+
+        dragStartX = clientX;
+        dragStartY = clientY;
+
+        centerX = window.innerWidth / 2;
+        centerY = window.innerHeight / 2;
+
+        currentCard.classList.add('dragging');
+        document.getElementById('swipe-hint-overlay').classList.add('visible');
+    }
+
+    function drag(e) {
+        if (!isDragging || !currentCard) return;
+
+        e.preventDefault();
+
+        const clientX = e.type === 'mousemove' ? e.clientX : e.touches[0].clientX;
+        const clientY = e.type === 'mousemove' ? e.clientY : e.touches[0].clientY;
+
+        const deltaX = clientX - dragStartX;
+        const deltaY = clientY - dragStartY;
+
+        // Calculate angle from center
+        const angle = Math.atan2(clientY - centerY, clientX - centerX);
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+        // Convert to degrees and limit rotation
+        const rotation = (angle * 180 / Math.PI) * 0.3;
+        const maxRotation = 30;
+        const clampedRotation = Math.max(-maxRotation, Math.min(maxRotation, rotation));
+
+        // Calculate arc movement
+        const arcX = Math.cos(angle) * distance * 0.3;
+        const arcY = Math.sin(angle) * distance * 0.3;
+
+        currentCard.style.transform = `translate(${arcX}px, ${arcY}px) rotate(${clampedRotation}deg)`;
+
+        // Show swipe hints based on position relative to center
+        const hintLeft = document.querySelector('.swipe-hint-left');
+        const hintRight = document.querySelector('.swipe-hint-right');
+
+        // Determine if card is to the left or right of center
+        const cardRect = currentCard.getBoundingClientRect();
+        const cardCenterX = cardRect.left + cardRect.width / 2;
+        const isRightOfCenter = cardCenterX > centerX;
+
+        if (Math.abs(deltaX) > 50) { // Only show hints when dragged significantly
+            if (isRightOfCenter) {
+                hintRight.classList.add('visible');
+                hintLeft.classList.remove('visible');
+                currentCard.classList.add('swipe-hint-right');
+                currentCard.classList.remove('swipe-hint-left');
+            } else {
+                hintLeft.classList.add('visible');
+                hintRight.classList.remove('visible');
+                currentCard.classList.add('swipe-hint-left');
+                currentCard.classList.remove('swipe-hint-right');
+            }
+        } else {
+            hintLeft.classList.remove('visible');
+            hintRight.classList.remove('visible');
+            currentCard.classList.remove('swipe-hint-left', 'swipe-hint-right');
+        }
+    }
+
+    function endDrag(e) {
+        if (!isDragging || !currentCard) return;
+
+        isDragging = false;
+        document.getElementById('swipe-hint-overlay').classList.remove('visible');
+
+        const clientX = e.type === 'mouseup' ? e.clientX : e.changedTouches[0].clientX;
+        const deltaX = clientX - dragStartX;
+
+        // Determine swipe direction based on position relative to center
+        const cardRect = currentCard.getBoundingClientRect();
+        const cardCenterX = cardRect.left + cardRect.width / 2;
+        const isRightOfCenter = cardCenterX > centerX;
+
+        const threshold = 100; // Minimum distance for swipe
+        const distance = Math.sqrt(deltaX * deltaX + (e.clientY - dragStartY) * (e.clientY - dragStartY));
+
+        if (distance > threshold) {
+            if (isRightOfCenter) {
+                handleSwipe('right'); // Right of center = +1 (like)
+            } else {
+                handleSwipe('left'); // Left of center = -1 (dislike)
+            }
+        } else {
+            // Reset card position - not enough movement for a swipe
+            currentCard.style.transform = '';
+            currentCard.classList.remove('dragging', 'swipe-hint-left', 'swipe-hint-right');
+        }
+
+        currentCard = null;
+    }
+
+    // Update center position on window resize
+    window.addEventListener('resize', () => {
+        centerX = window.innerWidth / 2;
+        centerY = window.innerHeight / 2;
+    });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liquid Wave Reveal with Fluid Simulation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            overflow: hidden;
+            background: #000;
+            cursor: grab;
+        }
+        body.dragging {
+            cursor: grabbing;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            color: white;
+            font-family: monospace;
+            z-index: 100;
+        }
+        .controls label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .controls input[type="checkbox"] {
+            cursor: pointer;
+        }
+        .trail-dot {
+            position: fixed;
+            width: 4px;
+            height: 4px;
+            background: red;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 99;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <label>
+            <input type="checkbox" id="showTrail">
+            Show Mouse Trail
+        </label>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script id="vertexShader" type="x-shader/x-vertex">
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    </script>
+    
+    <!-- Advection Shader -->
+    <script id="advectionShader" type="x-shader/x-fragment">
+        uniform sampler2D uVelocity;
+        uniform sampler2D uSource;
+        uniform vec2 uTexelSize;
+        uniform float uDt;
+        uniform float uDissipation;
+        varying vec2 vUv;
+        
+        void main() {
+            vec2 coord = vUv - uDt * texture2D(uVelocity, vUv).xy * uTexelSize;
+            gl_FragColor = uDissipation * texture2D(uSource, coord);
+        }
+    </script>
+    
+    <!-- Divergence Shader -->
+    <script id="divergenceShader" type="x-shader/x-fragment">
+        uniform sampler2D uVelocity;
+        uniform vec2 uTexelSize;
+        varying vec2 vUv;
+        
+        void main() {
+            float L = texture2D(uVelocity, vUv - vec2(uTexelSize.x, 0.0)).x;
+            float R = texture2D(uVelocity, vUv + vec2(uTexelSize.x, 0.0)).x;
+            float T = texture2D(uVelocity, vUv + vec2(0.0, uTexelSize.y)).y;
+            float B = texture2D(uVelocity, vUv - vec2(0.0, uTexelSize.y)).y;
+            
+            float div = 0.5 * (R - L + T - B);
+            gl_FragColor = vec4(div, 0.0, 0.0, 1.0);
+        }
+    </script>
+    
+    <!-- Pressure Solver (Jacobi) -->
+    <script id="pressureShader" type="x-shader/x-fragment">
+        uniform sampler2D uPressure;
+        uniform sampler2D uDivergence;
+        uniform vec2 uTexelSize;
+        varying vec2 vUv;
+        
+        void main() {
+            float L = texture2D(uPressure, vUv - vec2(uTexelSize.x, 0.0)).x;
+            float R = texture2D(uPressure, vUv + vec2(uTexelSize.x, 0.0)).x;
+            float T = texture2D(uPressure, vUv + vec2(0.0, uTexelSize.y)).x;
+            float B = texture2D(uPressure, vUv - vec2(0.0, uTexelSize.y)).x;
+            float C = texture2D(uDivergence, vUv).x;
+            
+            gl_FragColor = vec4((L + R + B + T - C) * 0.25, 0.0, 0.0, 1.0);
+        }
+    </script>
+    
+    <!-- Gradient Subtraction -->
+    <script id="gradientShader" type="x-shader/x-fragment">
+        uniform sampler2D uPressure;
+        uniform sampler2D uVelocity;
+        uniform vec2 uTexelSize;
+        varying vec2 vUv;
+        
+        void main() {
+            float L = texture2D(uPressure, vUv - vec2(uTexelSize.x, 0.0)).x;
+            float R = texture2D(uPressure, vUv + vec2(uTexelSize.x, 0.0)).x;
+            float T = texture2D(uPressure, vUv + vec2(0.0, uTexelSize.y)).x;
+            float B = texture2D(uPressure, vUv - vec2(0.0, uTexelSize.y)).x;
+            
+            vec2 velocity = texture2D(uVelocity, vUv).xy;
+            velocity.xy -= vec2(R - L, T - B) * 0.5;
+            gl_FragColor = vec4(velocity, 0.0, 1.0);
+        }
+    </script>
+    
+    <!-- Splat Shader (Add velocity/ink) -->
+    <script id="splatShader" type="x-shader/x-fragment">
+        uniform sampler2D uTarget;
+        uniform vec2 uPoint;
+        uniform vec3 uColor;
+        uniform float uRadius;
+        uniform vec2 uAspect;
+        varying vec2 vUv;
+        
+        void main() {
+            vec2 p = vUv - uPoint;
+            p.x *= uAspect.x;
+            vec3 splat = exp(-dot(p, p) / uRadius) * uColor;
+            vec3 base = texture2D(uTarget, vUv).xyz;
+            gl_FragColor = vec4(base + splat, 1.0);
+        }
+    </script>
+    
+    <!-- Ink/Transition Splat Shader -->
+    <script id="inkSplatShader" type="x-shader/x-fragment">
+        uniform sampler2D uTarget;
+        uniform vec2 uPoint;
+        uniform float uRadius;
+        uniform vec2 uAspect;
+        uniform float uIntensity;
+        varying vec2 vUv;
+        
+        void main() {
+            vec2 p = vUv - uPoint;
+            p.x *= uAspect.x;
+            float splat = exp(-dot(p, p) / uRadius) * uIntensity;
+            float base = texture2D(uTarget, vUv).r;
+            gl_FragColor = vec4(base + splat, 0.0, 0.0, 1.0);
+        }
+    </script>
+    
+    <!-- Display Shader -->
+    <script id="displayShader" type="x-shader/x-fragment">
+        uniform sampler2D uTexture1;
+        uniform sampler2D uTexture2;
+        uniform sampler2D uFluid;
+        uniform sampler2D uInk;
+        uniform vec2 uResolution;
+        uniform bool uShowingFirst;
+        
+        varying vec2 vUv;
+        
+        vec4 sampleWithAberration(sampler2D tex, vec2 uv, vec2 direction, float aberration) {
+            float r = texture2D(tex, uv + direction * aberration).r;
+            float g = texture2D(tex, uv + direction * aberration * 0.5).g;
+            float b = texture2D(tex, uv - direction * aberration * 0.5).b;
+            return vec4(r, g, b, 1.0);
+        }
+        
+        void main() {
+            vec2 uv = vUv;
+            
+            // Sample fluid velocity for distortion
+            vec2 fluidVel = texture2D(uFluid, uv).xy;
+            float fluidMag = length(fluidVel);
+            
+            // Stronger distortion for ripping effect
+            vec2 distortedUv = uv - fluidVel * 0.15;
+            
+            // Sample ink/transition field
+            float ink = texture2D(uInk, uv).r;
+            
+            // Sharp edge for tearing effect
+            float edge = smoothstep(0.15, 0.3, ink);
+            float edgeGlow = smoothstep(0.2, 0.25, ink) - smoothstep(0.25, 0.35, ink);
+            
+            // Strong chromatic aberration at tear edges
+            float aberration = (fluidMag * 0.03 + edgeGlow * 0.05);
+            vec2 direction = normalize(fluidVel + 0.0001);
+            
+            // Sample both textures with chromatic aberration
+            vec4 color1 = sampleWithAberration(uTexture1, distortedUv, direction, aberration);
+            vec4 color2 = sampleWithAberration(uTexture2, distortedUv, direction, aberration);
+            
+            // Add white glow at tear edge
+            vec3 glowColor = vec3(1.0) * edgeGlow * 2.0;
+            
+            // Mix based on ink field and direction
+            vec4 finalColor;
+            if (uShowingFirst) {
+                finalColor = mix(color1, color2, edge);
+            } else {
+                finalColor = mix(color2, color1, edge);
+            }
+            
+            finalColor.rgb += glowColor;
+            
+            gl_FragColor = finalColor;
+        }
+    </script>
+    
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // Simulation resolution
+        const simRes = 256;
+        const texelSize = new THREE.Vector2(1.0 / simRes, 1.0 / simRes);
+
+        // Create render targets for fluid simulation
+        function createFBO() {
+            return new THREE.WebGLRenderTarget(simRes, simRes, {
+                minFilter: THREE.LinearFilter,
+                magFilter: THREE.LinearFilter,
+                format: THREE.RGBAFormat,
+                type: THREE.FloatType || THREE.HalfFloatType
+            });
+        }
+
+        const velocity = [createFBO(), createFBO()];
+        const divergence = createFBO();
+        const pressure = [createFBO(), createFBO()];
+        const ink = [createFBO(), createFBO()]; // Transition field
+
+        // Load textures
+        const loader = new THREE.TextureLoader();
+        const texture1 = loader.load('https://images.unsplash.com/photo-1518173946687-a4c8892bbd9f?w=1200&h=800&fit=crop');
+        const texture2 = loader.load('https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=1200&h=800&fit=crop');
+
+        // Shader materials
+        const quadGeo = new THREE.PlaneGeometry(2, 2);
+        
+        const advectionMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uVelocity: { value: null },
+                uSource: { value: null },
+                uTexelSize: { value: texelSize },
+                uDt: { value: 0.016 },
+                uDissipation: { value: 0.98 }
+            },
+            vertexShader: document.getElementById('vertexShader').textContent,
+            fragmentShader: document.getElementById('advectionShader').textContent
+        });
+
+        const divergenceMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uVelocity: { value: null },
+                uTexelSize: { value: texelSize }
+            },
+            vertexShader: document.getElementById('vertexShader').textContent,
+            fragmentShader: document.getElementById('divergenceShader').textContent
+        });
+
+        const pressureMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uPressure: { value: null },
+                uDivergence: { value: null },
+                uTexelSize: { value: texelSize }
+            },
+            vertexShader: document.getElementById('vertexShader').textContent,
+            fragmentShader: document.getElementById('pressureShader').textContent
+        });
+
+        const gradientMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uPressure: { value: null },
+                uVelocity: { value: null },
+                uTexelSize: { value: texelSize }
+            },
+            vertexShader: document.getElementById('vertexShader').textContent,
+            fragmentShader: document.getElementById('gradientShader').textContent
+        });
+
+        const splatMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uTarget: { value: null },
+                uPoint: { value: new THREE.Vector2() },
+                uColor: { value: new THREE.Vector3() },
+                uRadius: { value: 0.002 },
+                uAspect: { value: new THREE.Vector2(1, 1) }
+            },
+            vertexShader: document.getElementById('vertexShader').textContent,
+            fragmentShader: document.getElementById('splatShader').textContent
+        });
+
+        const inkSplatMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uTarget: { value: null },
+                uPoint: { value: new THREE.Vector2() },
+                uRadius: { value: 0.006 }, // Wider ripples
+                uAspect: { value: new THREE.Vector2(1, 1) },
+                uIntensity: { value: 0.8 } // Stronger intensity
+            },
+            vertexShader: document.getElementById('vertexShader').textContent,
+            fragmentShader: document.getElementById('inkSplatShader').textContent
+        });
+
+        const displayMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uTexture1: { value: texture1 },
+                uTexture2: { value: texture2 },
+                uFluid: { value: null },
+                uInk: { value: null },
+                uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+                uShowingFirst: { value: true }
+            },
+            vertexShader: document.getElementById('vertexShader').textContent,
+            fragmentShader: document.getElementById('displayShader').textContent
+        });
+
+        const quad = new THREE.Mesh(quadGeo, displayMat);
+        scene.add(quad);
+
+        // Interaction state
+        let isDragging = false;
+        let isTransitioning = false;
+        let globalInkLevel = 0.0;
+        let showingFirst = true;
+        let showTrail = false;
+        const mouse = { x: 0.5, y: 0.5 };
+        const lastMouse = { x: 0.5, y: 0.5 };
+        const trailDots = [];
+        
+        // Trail checkbox
+        document.getElementById('showTrail').addEventListener('change', (e) => {
+            showTrail = e.target.checked;
+            if (!showTrail) {
+                clearTrailDots();
+            }
+        });
+
+        function onPointerDown(e) {
+            isDragging = true;
+            document.body.classList.add('dragging');
+            const x = e.clientX || (e.touches && e.touches[0].clientX);
+            const y = e.clientY || (e.touches && e.touches[0].clientY);
+            mouse.x = x / window.innerWidth;
+            mouse.y = 1.0 - (y / window.innerHeight);
+            lastMouse.x = mouse.x;
+            lastMouse.y = mouse.y;
+            
+            if (showTrail) {
+                addTrailDot(x, y);
+            }
+        }
+
+        function onPointerMove(e) {
+            if (!isDragging) return;
+            
+            const x = e.clientX || (e.touches && e.touches[0].clientX);
+            const y = e.clientY || (e.touches && e.touches[0].clientY);
+            
+            lastMouse.x = mouse.x;
+            lastMouse.y = mouse.y;
+            mouse.x = x / window.innerWidth;
+            mouse.y = 1.0 - (y / window.innerHeight);
+            
+            if (showTrail) {
+                addTrailDot(x, y);
+            }
+        }
+
+        function onPointerUp() {
+            if (!isDragging) return;
+            isDragging = false;
+            document.body.classList.remove('dragging');
+            
+            // Calculate final velocity vector
+            const dx = (mouse.x - lastMouse.x) * 60;
+            const dy = (mouse.y - lastMouse.y) * 60;
+            const velocity = Math.sqrt(dx * dx + dy * dy);
+            
+            // Add residual inertia splats along trajectory
+            const steps = Math.min(Math.floor(velocity * 2), 15);
+            for (let i = 0; i < steps; i++) {
+                const t = i / steps;
+                const decay = 1.0 - (t * 0.7); // Decay over distance
+                const px = mouse.x + dx * t * 0.05;
+                const py = mouse.y + dy * t * 0.05;
+                
+                setTimeout(() => {
+                    splat(px, py, dx * decay, dy * decay);
+                    splatInk(px, py, 0.4 * decay);
+                }, i * 30);
+            }
+            
+            // Start transition phase
+            isTransitioning = true;
+            
+            // Clear trail dots
+            clearTrailDots();
+        }
+        
+        function addTrailDot(x, y) {
+            const dot = document.createElement('div');
+            dot.className = 'trail-dot';
+            dot.style.left = (x - 2) + 'px';
+            dot.style.top = (y - 2) + 'px';
+            document.body.appendChild(dot);
+            trailDots.push(dot);
+        }
+        
+        function clearTrailDots() {
+            trailDots.forEach(dot => dot.remove());
+            trailDots.length = 0;
+        }
+
+        window.addEventListener('mousedown', onPointerDown);
+        window.addEventListener('mousemove', onPointerMove);
+        window.addEventListener('mouseup', onPointerUp);
+        window.addEventListener('touchstart', onPointerDown);
+        window.addEventListener('touchmove', onPointerMove);
+        window.addEventListener('touchend', onPointerUp);
+
+        // Fluid simulation functions
+        function splat(x, y, dx, dy) {
+            const aspect = window.innerWidth / window.innerHeight;
+            
+            // Add velocity
+            splatMat.uniforms.uAspect.value.set(aspect, 1);
+            splatMat.uniforms.uTarget.value = velocity[0].texture;
+            splatMat.uniforms.uPoint.value.set(x, y);
+            splatMat.uniforms.uColor.value.set(dx, dy, 0);
+            
+            const splatQuad = new THREE.Mesh(quadGeo, splatMat);
+            const tempScene = new THREE.Scene();
+            tempScene.add(splatQuad);
+            renderer.setRenderTarget(velocity[1]);
+            renderer.render(tempScene, camera);
+            swapVelocity();
+        }
+
+        function splatInk(x, y, intensity) {
+            const aspect = window.innerWidth / window.innerHeight;
+            
+            inkSplatMat.uniforms.uAspect.value.set(aspect, 1);
+            inkSplatMat.uniforms.uTarget.value = ink[0].texture;
+            inkSplatMat.uniforms.uPoint.value.set(x, y);
+            inkSplatMat.uniforms.uIntensity.value = intensity;
+            
+            const inkQuad = new THREE.Mesh(quadGeo, inkSplatMat);
+            const tempScene = new THREE.Scene();
+            tempScene.add(inkQuad);
+            renderer.setRenderTarget(ink[1]);
+            renderer.render(tempScene, camera);
+            swapInk();
+        }
+
+        function swapVelocity() {
+            const temp = velocity[0];
+            velocity[0] = velocity[1];
+            velocity[1] = temp;
+        }
+
+        function swapInk() {
+            const temp = ink[0];
+            ink[0] = ink[1];
+            ink[1] = temp;
+        }
+
+        function swapPressure() {
+            const temp = pressure[0];
+            pressure[0] = pressure[1];
+            pressure[1] = temp;
+        }
+
+        function step(dt) {
+            // Advect velocity
+            advectionMat.uniforms.uVelocity.value = velocity[0].texture;
+            advectionMat.uniforms.uSource.value = velocity[0].texture;
+            advectionMat.uniforms.uDt.value = dt;
+            const advectQuad = new THREE.Mesh(quadGeo, advectionMat);
+            const advectScene = new THREE.Scene();
+            advectScene.add(advectQuad);
+            renderer.setRenderTarget(velocity[1]);
+            renderer.render(advectScene, camera);
+            swapVelocity();
+
+            // Advect ink field with slower dissipation for longer trails
+            advectionMat.uniforms.uVelocity.value = velocity[0].texture;
+            advectionMat.uniforms.uSource.value = ink[0].texture;
+            advectionMat.uniforms.uDissipation.value = 0.993;
+            renderer.setRenderTarget(ink[1]);
+            renderer.render(advectScene, camera);
+            swapInk();
+            advectionMat.uniforms.uDissipation.value = 0.97; // Less dissipation for stronger ripples
+
+            // Divergence
+            divergenceMat.uniforms.uVelocity.value = velocity[0].texture;
+            const divQuad = new THREE.Mesh(quadGeo, divergenceMat);
+            const divScene = new THREE.Scene();
+            divScene.add(divQuad);
+            renderer.setRenderTarget(divergence);
+            renderer.render(divScene, camera);
+
+            // Pressure solve (Jacobi iterations)
+            renderer.setRenderTarget(pressure[0]);
+            renderer.clear();
+            
+            for (let i = 0; i < 20; i++) {
+                pressureMat.uniforms.uPressure.value = pressure[0].texture;
+                pressureMat.uniforms.uDivergence.value = divergence.texture;
+                const pressQuad = new THREE.Mesh(quadGeo, pressureMat);
+                const pressScene = new THREE.Scene();
+                pressScene.add(pressQuad);
+                renderer.setRenderTarget(pressure[1]);
+                renderer.render(pressScene, camera);
+                swapPressure();
+            }
+
+            // Gradient subtraction
+            gradientMat.uniforms.uPressure.value = pressure[0].texture;
+            gradientMat.uniforms.uVelocity.value = velocity[0].texture;
+            const gradQuad = new THREE.Mesh(quadGeo, gradientMat);
+            const gradScene = new THREE.Scene();
+            gradScene.add(gradQuad);
+            renderer.setRenderTarget(velocity[1]);
+            renderer.render(gradScene, camera);
+            swapVelocity();
+        }
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            renderer.setSize(width, height);
+            displayMat.uniforms.uResolution.value.set(width, height);
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Add velocity and ink while dragging
+            if (isDragging) {
+                const dx = (mouse.x - lastMouse.x) * 25;
+                const dy = (mouse.y - lastMouse.y) * 25;
+                
+                if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
+                    splat(mouse.x, mouse.y, dx, dy);
+                    splatInk(mouse.x, mouse.y, 0.5); // Stronger ink for tear effect
+                    globalInkLevel += 0.003;
+                }
+            }
+            
+            // Update fluid simulation
+            step(0.016);
+            
+            // Handle transition after release
+            if (isTransitioning) {
+                globalInkLevel += 0.008; // Continue spreading
+                
+                if (globalInkLevel >= 1.0) {
+                    globalInkLevel = 0.0;
+                    isTransitioning = false;
+                    showingFirst = !showingFirst;
+                    
+                    // Clear ink field for next interaction
+                    renderer.setRenderTarget(ink[0]);
+                    renderer.clear();
+                    renderer.setRenderTarget(ink[1]);
+                    renderer.clear();
+                }
+            }
+            
+            // Render display
+            displayMat.uniforms.uFluid.value = velocity[0].texture;
+            displayMat.uniforms.uInk.value = ink[0].texture;
+            displayMat.uniforms.uShowingFirst.value = showingFirst;
+            
+            renderer.setRenderTarget(null);
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

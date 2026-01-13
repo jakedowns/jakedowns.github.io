@@ -157,7 +157,39 @@
             text-align: center;
             margin-bottom: 20px;
             position: relative;
-            height: 60px;
+            height: 80px;
+        }
+
+        /* Stats Display */
+        .stats-display {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #e0e0e0;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 60px;
+        }
+
+        .stat-label {
+            font-size: 9px;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 2px;
+        }
+
+        .stat-value {
+            font-size: 14px;
+            font-weight: bold;
+            color: #fff;
         }
         
         .logo-text {
@@ -288,6 +320,20 @@
         <div class="logo-area">
             <div class="logo-text">LIGHTS <span class="logo-out">OUT</span></div>
             <div class="logo-graphic"></div>
+            <div class="stats-display">
+                <div class="stat-item">
+                    <div class="stat-label">LEVEL</div>
+                    <div class="stat-value" id="levelDisplay">1</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">MOVES</div>
+                    <div class="stat-value" id="movesDisplay">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">BEST</div>
+                    <div class="stat-value" id="highScoreDisplay">--</div>
+                </div>
+            </div>
         </div>
 
         <div class="controls">
@@ -327,6 +373,7 @@
         let manualMode = false;
         let currentLevel = 1;
         let soundAutoEnabled = false;
+        let currentMoves = 0;
 
         // Tone.js setup
         let synth = null;
@@ -366,6 +413,33 @@
             // C major scale notes (C, D, E, F, G, A, B) across multiple octaves
             const scaleNotes = ['C3', 'D3', 'E3', 'F3', 'G3', 'A3', 'B3', 'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5', 'D5', 'E5', 'F5', 'G5', 'A5', 'B5', 'C6'];
             return scaleNotes[Math.min(index, scaleNotes.length - 1)];
+        }
+
+        // LocalStorage functions for high scores
+        function getHighScore(level) {
+            const key = `lightsout_highscore_level_${level}`;
+            const score = localStorage.getItem(key);
+            return score ? parseInt(score) : null;
+        }
+
+        function setHighScore(level, score) {
+            const key = `lightsout_highscore_level_${level}`;
+            localStorage.setItem(key, score.toString());
+        }
+
+        // Update stats display
+        function updateStatsDisplay() {
+            const levelElement = document.getElementById('levelDisplay');
+            const movesElement = document.getElementById('movesDisplay');
+            const highScoreElement = document.getElementById('highScoreDisplay');
+
+            if (levelElement) levelElement.textContent = currentLevel;
+            if (movesElement) movesElement.textContent = currentMoves;
+
+            const highScore = getHighScore(currentLevel);
+            if (highScoreElement) {
+                highScoreElement.textContent = highScore !== null ? highScore : '--';
+            }
         }
 
         // Play button press sound with pitch based on lit cell count
@@ -423,6 +497,8 @@
                             }
 
                             toggleLights(r, c);
+                            currentMoves++;
+                            updateStatsDisplay();
                             playButtonSound();
                             checkWinCondition();
                         }
@@ -495,6 +571,8 @@
                     break;
             }
             render();
+            currentMoves = 0;
+            updateStatsDisplay();
         }
 
         // 5. Game Logic: Toggle self and neighbors
@@ -574,6 +652,12 @@
 
         // Advance to next level
         function nextLevel() {
+            // Check and update high score
+            const currentHighScore = getHighScore(currentLevel);
+            if (currentHighScore === null || currentMoves < currentHighScore) {
+                setHighScore(currentLevel, currentMoves);
+            }
+
             currentLevel++;
             manualMode = true; // Stay in manual mode
             generatePuzzle(currentLevel);
@@ -597,6 +681,7 @@
             clearInterval(autoPlayInterval);
             manualMode = false; // Reset to auto-play mode
             currentLevel = 1;
+            currentMoves = 0;
 
             // Reset button states
             document.getElementById('btnStart').classList.remove('active-start');
