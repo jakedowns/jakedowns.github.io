@@ -13,10 +13,226 @@
             font-family: monospace;
             z-index: 100;
         }
+        #controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            font-family: monospace;
+            z-index: 100;
+        }
+        #controls label {
+            display: block;
+            margin-bottom: 5px;
+            cursor: pointer;
+        }
+        #controls input[type="checkbox"] {
+            margin-right: 5px;
+        }
+        #eq {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+        }
+        .eq-column {
+            display: flex;
+            flex-direction: column-reverse;
+            gap: 2px;
+            width: 20px;
+        }
+        .eq-segment {
+            height: 15px;
+            background: #00ff00;
+            border: 1px solid #000;
+            transition: opacity 0.1s ease;
+        }
+        .eq-segment.yellow { background: #ffff00; }
+        .eq-segment.red { background: #ff0000; }
+        .eq-peak {
+            position: absolute;
+            width: 20px;
+            height: 4px;
+            background: #00ffff;
+            transition: top 0.3s ease;
+            pointer-events: none;
+        }
+        #startNote {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-family: monospace;
+            font-size: 24px;
+            text-align: center;
+            z-index: 200;
+            opacity: 1;
+            transition: opacity 0.5s ease-out;
+            pointer-events: none;
+        }
+        #startNote.hidden {
+            opacity: 0;
+        }
+
+        /* ImGui-style Control Panel */
+        #imgui-panel {
+            position: absolute;
+            top: 10px;
+            right: 200px;
+            z-index: 100;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 11px;
+            user-select: none;
+        }
+
+        .imgui-window {
+            background: rgba(35, 35, 35, 0.95);
+            border: 1px solid #555;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            min-width: 250px;
+        }
+
+        .imgui-title {
+            background: #2d2d2d;
+            color: #ffffff;
+            padding: 6px 8px;
+            border-bottom: 1px solid #555;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .imgui-title::after {
+            content: "▼";
+            transition: transform 0.2s ease;
+        }
+
+        .imgui-window.collapsed .imgui-title::after {
+            transform: rotate(-90deg);
+        }
+
+        .imgui-window.collapsed .imgui-content {
+            display: none;
+        }
+
+        .imgui-content {
+            padding: 8px;
+        }
+
+        .imgui-slider {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            color: #cccccc;
+        }
+
+        .imgui-slider label {
+            flex: 1;
+            margin-right: 8px;
+            white-space: nowrap;
+        }
+
+        .imgui-slider input[type="range"] {
+            flex: 2;
+            margin-right: 8px;
+            background: #444;
+            border: 1px solid #666;
+            border-radius: 2px;
+            height: 16px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .imgui-slider input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 16px;
+            background: #007acc;
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .imgui-slider input[type="range"]::-moz-range-thumb {
+            width: 12px;
+            height: 16px;
+            background: #007acc;
+            border-radius: 2px;
+            cursor: pointer;
+            border: none;
+        }
+
+        .imgui-slider span {
+            min-width: 35px;
+            text-align: right;
+            color: #ffffff;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
     <div id="info">Loading audio...</div>
+    <div id="controls">
+        <label>
+            <input type="checkbox" id="wireframeToggle">
+            Wireframe
+        </label>
+    </div>
+
+    <div id="eq">
+        <div class="eq-column" id="bassColumn">
+            <div class="eq-peak" id="bassPeak"></div>
+        </div>
+        <div class="eq-column" id="midColumn">
+            <div class="eq-peak" id="midPeak"></div>
+        </div>
+        <div class="eq-column" id="highColumn">
+            <div class="eq-peak" id="highPeak"></div>
+        </div>
+    </div>
+
+    <div id="startNote">Click or tap to start</div>
+
+    <!-- ImGui-style Control Panel -->
+    <div id="imgui-panel">
+        <div class="imgui-window">
+            <div class="imgui-title">Wobble Controls</div>
+            <div class="imgui-content">
+                <div class="imgui-slider">
+                    <label>Amplitude</label>
+                    <input type="range" id="amplitudeSlider" min="0" max="1" step="0.01" value="0.3">
+                    <span id="amplitudeValue">0.30</span>
+                </div>
+                <div class="imgui-slider">
+                    <label>Noise Scale</label>
+                    <input type="range" id="noiseScaleSlider" min="0.1" max="5" step="0.1" value="2.0">
+                    <span id="noiseScaleValue">2.0</span>
+                </div>
+                <div class="imgui-slider">
+                    <label>Noise Frequency</label>
+                    <input type="range" id="noiseFreqSlider" min="0.1" max="3" step="0.1" value="1.0">
+                    <span id="noiseFreqValue">1.0</span>
+                </div>
+                <div class="imgui-slider">
+                    <label>Time Modulation</label>
+                    <input type="range" id="timeModSlider" min="0.5" max="5" step="0.1" value="2.0">
+                    <span id="timeModValue">2.0</span>
+                </div>
+                <div class="imgui-slider">
+                    <label>Rotation Speed (°/s)</label>
+                    <input type="range" id="rotationSpeedSlider" min="-5" max="5" step="0.1" value="0.5">
+                    <span id="rotationSpeedValue">0.5</span>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script type="importmap">
     {
@@ -30,11 +246,15 @@
     </script>
 
     <script type="module">
-        import * as THREE from 'three/webgpu';
-        import { 
-            float, vec2, vec3, vec4, color, uniform, Fn, 
-            sin, cos, PI, mix, 
-            positionLocal, normalLocal, uv
+        import * as THREE from 'three';
+        import {
+            float, vec2, vec3, vec4, color, uniform, Fn,
+            sin, cos, PI, mix, normalize, length,
+            clamp,
+            positionLocal, normalLocal, uv,
+            positionWorld, normalWorld, cameraPosition,
+            cameraViewMatrix, cameraProjectionMatrix, cameraWorldMatrix,
+            modelWorldMatrix
         } from 'three/tsl';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
@@ -43,13 +263,20 @@
         let bassFilter, midFilter, highFilter;
         let bassUniform, midUniform, highUniform;
         let bassGain, midGain, highGain;
+        let wobbleAmplitude, noiseScale, noiseFrequency, timeModulation, rotationSpeed;
 
         // Audio analysis values
         let bassLevel = 0;
         let midLevel = 0;
         let highLevel = 0;
 
-        init();
+        // EQ peak tracking
+        let bassPeak = 0;
+        let midPeak = 0;
+        let highPeak = 0;
+        const peakFallSpeed = 0.02;
+
+        
 
         async function init() {
             // Setup renderer
@@ -60,89 +287,236 @@
             document.body.appendChild(renderer.domElement);
             await renderer.init();
 
+            // Ensure the canvas can receive pointer events
+            renderer.domElement.style.touchAction = 'none';
+            renderer.domElement.style.position = 'fixed';
+            renderer.domElement.style.top = '0';
+            renderer.domElement.style.left = '0';
+            renderer.domElement.style.width = '100%';
+            renderer.domElement.style.height = '100%';
+            renderer.domElement.style.zIndex = '1';
+
             // Setup scene
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.set(0, 0, 5);
-
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
+            camera.position.set(0, 0, 8);
 
             // Setup audio
             await setupAudio();
 
-            // Create TSL material
+            // Initialize controls after renderer and audio are ready
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enableZoom = true;
+            controls.enablePan = true;
+            controls.enableRotate = true;
+            controls.minDistance = 3;
+            controls.maxDistance = 30;
+            controls.zoomSpeed = 1.0;
+            controls.rotateSpeed = 0.5;
+
+            // Setup EQ display
+            setupEQ();
+
+            // Create TSL materials
             bassUniform = uniform(0);
             midUniform = uniform(0);
             highUniform = uniform(0);
             const timeUniform = uniform(0);
 
-            const material = new THREE.MeshNodeMaterial();
-            
-            // Vertex shader - bass affects geometry distortion
-            material.vertexNode = Fn(() => {
-                const time = timeUniform;
-                
-                const pos = positionLocal;
-                const uvs = uv();
-                
-                // Bass: radial pulsing distortion along normal
-                const bassPulse = bassUniform.mul(0.5);
-                const bassWave = sin(time.mul(2).add(uvs.x.mul(PI.mul(6)))).mul(bassPulse);
-                const bassDistortion = normalLocal.mul(bassWave);
-                
-                // Mid: vertical waves along Y axis
-                const midWave = midUniform.mul(0.3).mul(sin(uvs.y.mul(PI.mul(4)).add(time.mul(3))));
-                const midDistortion = vec3(0, midWave, 0);
-                
-                // High: rapid oscillations in all directions
-                const highOsc = highUniform.mul(0.2);
-                const highX = sin(time.mul(10).add(uvs.x.mul(PI.mul(8)))).mul(highOsc);
-                const highY = cos(time.mul(12).add(uvs.y.mul(PI.mul(6)))).mul(highOsc);
-                const highZ = sin(time.mul(8).add(uvs.x.add(uvs.y).mul(PI.mul(4)))).mul(highOsc);
-                const highDistortion = vec3(highX, highY, highZ);
-                
-                // Combine all distortions
-                const distortion = pos
-                    .add(bassDistortion)
-                    .add(midDistortion)
-                    .add(highDistortion);
-                
-                return distortion;
-            })();
+            // Wobble control uniforms
+            wobbleAmplitude = uniform(0.3);
+            noiseScale = uniform(2.0);
+            noiseFrequency = uniform(1.0);
+            timeModulation = uniform(2.0);
+            rotationSpeed = uniform(0.5); // Half degree per second
 
-            // Fragment shader - mid affects color, high affects brightness
-            material.colorNode = Fn(() => {
+            // Create normal material
+            const normalMaterial = new THREE.MeshStandardMaterial();
+
+            // Vertex shader - bass affects geometry distortion with camera awareness
+            normalMaterial.vertexNode = Fn(() => {
+                const pos = positionLocal;
+                const time = timeUniform;
+
+                // Apply Y-axis rotation based on time and rotation speed
+                const rotationAngle = time.mul(rotationSpeed).mul(PI).div(180.0); // Convert degrees to radians
+                const cosAngle = cos(rotationAngle);
+                const sinAngle = sin(rotationAngle);
+                const rotatedPos = vec3(
+                    pos.x.mul(cosAngle).sub(pos.z.mul(sinAngle)),
+                    pos.y,
+                    pos.x.mul(sinAngle).add(pos.z.mul(cosAngle))
+                );
+
+                // Transform to world space
+                const worldPos = modelWorldMatrix.mul(vec4(rotatedPos, 1.0)).xyz;
+
+                // Create noise based on world position and time
+                const noise1 = sin(worldPos.x.mul(noiseScale).add(time.mul(0.8).mul(noiseFrequency))).mul(cos(worldPos.y.mul(noiseScale).add(time.mul(1.2).mul(noiseFrequency))));
+                const noise2 = sin(worldPos.z.mul(noiseScale).add(time.mul(0.6).mul(noiseFrequency))).mul(cos(worldPos.x.mul(noiseScale).add(time.mul(1.5).mul(noiseFrequency))));
+                const noise = noise1.add(noise2).mul(0.5).add(0.5); // Normalize to 0-1
+
+                // Get normal in world space for direction
+                const worldNormal = normalize(modelWorldMatrix.mul(vec4(normalLocal, 0.0)).xyz);
+
+                // Bass-driven displacement along normal direction with noise modulation
+                const displacement = bassUniform
+                    .mul(noise.mul(0.8).add(0.2)) // Mix noise with bass (0.2-1.0 range)
+                    .mul(sin(time.mul(timeModulation).add(worldPos.x.add(worldPos.y).add(worldPos.z).mul(0.1))).mul(0.3).add(0.7)) // Additional time modulation
+                    .mul(wobbleAmplitude); // Scale displacement
+
+                // Spike displacement based on audio frequencies and sphere regions
+                let spikeDisplacement = float(0);
+
+                // Lower spikes (bass) - bottom third of sphere (y < -0.3)
+                const bassSpike = bassUniform.mul(1.5).mul(sin(time.mul(3.0)).mul(0.5).add(0.5));
+                const bassMask = pos.y.add(0.3).mul(-1).clamp(0, 1); // 1 when y < -0.3, 0 otherwise
+                spikeDisplacement = spikeDisplacement.add(bassSpike.mul(bassMask));
+
+                // Equator spikes (mid) - middle third of sphere (-0.3 < y < 0.3)
+                const midSpike = midUniform.mul(1.5).mul(sin(time.mul(2.5).add(pos.x.mul(0.5))).mul(0.5).add(0.5));
+                // Create mask for middle region: 1 when -0.3 < y < 0.3, 0 otherwise
+                const midLower = pos.y.add(0.3).clamp(0, 1); // 1 when y > -0.3
+                const midUpper = pos.y.sub(0.3).mul(-1).clamp(0, 1); // 1 when y < 0.3
+                const midMask = midLower.mul(midUpper);
+                spikeDisplacement = spikeDisplacement.add(midSpike.mul(midMask));
+
+                // Northern spikes (high) - top third of sphere (y > 0.3)
+                const highSpike = highUniform.mul(1.5).mul(sin(time.mul(4.0).add(pos.z.mul(0.3))).mul(0.5).add(0.5));
+                const highMask = pos.y.sub(0.3).clamp(0, 1); // 1 when y > 0.3, 0 otherwise
+                spikeDisplacement = spikeDisplacement.add(highSpike.mul(highMask));
+
+                // Apply both wobble and spike displacements
+                const totalDisplacement = displacement.add(spikeDisplacement);
+
+                // Apply displacement in world space
+                const displacedWorldPos = worldPos.add(worldNormal.mul(totalDisplacement));
+
+                // Transform back to view space for rendering
+                const viewPos = cameraViewMatrix.mul(vec4(displacedWorldPos, 1.0));
+
+                // Apply projection matrix to get clip space position
+                const clipPos = cameraProjectionMatrix.mul(viewPos);
+
+                return clipPos;
+            })();   
+            
+            // Fragment shader - gradient from top to bottom with independent hue offsets
+            normalMaterial.colorNode = Fn(() => {
                 const uvs = uv();
                 const time = timeUniform;
-                
-                // Base color shifts with mid frequencies
-                const hueShift = midUniform.mul(0.5);
-                const baseColor = vec3(
-                    sin(time.add(hueShift)).mul(0.5).add(0.5),
-                    cos(time.add(hueShift.mul(0.7))).mul(0.5).add(0.5),
-                    sin(time.add(hueShift.mul(1.3))).mul(0.5).add(0.5)
+
+                // Top color scheme (hue offset for top of sphere)
+                const topColorShift = midUniform.mul(1.2).add(time.mul(0.8));
+                const topBaseColor = vec3(
+                    sin(topColorShift).mul(0.65).add(0.65), // Red channel
+                    sin(topColorShift.mul(0.33)).mul(0.18).add(0.08), // Green channel - minimal
+                    cos(topColorShift).mul(0.7).add(0.7) // Blue channel
                 );
-                
-                // Bass adds deep red/purple
-                const bassColor = vec3(bassUniform.mul(0.8), bassUniform.mul(0.2), bassUniform.mul(1.0));
-                
-                // High adds bright white highlights
-                const highColor = vec3(highUniform.mul(0.5));
-                
-                // Mix colors
+
+                // Bottom color scheme (different hue offset for bottom of sphere)
+                const bottomColorShift = midUniform.mul(1.2).add(time.mul(0.8)).add(PI.mul(0.7)); // Offset hue by ~126 degrees
+                const bottomBaseColor = vec3(
+                    sin(bottomColorShift).mul(0.65).add(0.65), // Red channel
+                    sin(bottomColorShift.mul(0.33)).mul(0.18).add(0.08), // Green channel - minimal
+                    cos(bottomColorShift).mul(0.7).add(0.7) // Blue channel
+                );
+
+                // Interpolate between top and bottom colors based on vertical UV coordinate
+                const baseColor = mix(topBaseColor, bottomBaseColor, uvs.y);
+
+                // Bass adds deep red boost (applied to entire gradient)
+                const bassColor = vec3(bassUniform.mul(0.9), 0.0, bassUniform.mul(0.1));
+
+                // High adds bright blue highlights (applied to entire gradient)
+                const highColor = vec3(highUniform.mul(0.25), highUniform.mul(0.12), highUniform.mul(0.6));
+
+                // Mix colors, keep it saturated and vivid
                 const finalColor = baseColor
                     .add(bassColor)
                     .add(highColor)
                     .mul(highUniform.mul(0.3).add(0.7)); // Brightness from high freq
-                
-                return vec4(finalColor, 1.0);
+
+                // Clamp color, since saturation could go over 1
+                return vec4(clamp(finalColor, 0.0, 1.0), 1.0);
             })();
 
-            // Create torus geometry
-            const geometry = new THREE.TorusGeometry(1.5, 0.5, 64, 128);
-            const mesh = new THREE.Mesh(geometry, material);
+            // Create wireframe material (same shaders as normal material)
+            const wireframeMaterial = new THREE.MeshStandardMaterial({
+                wireframe: true,
+                transparent: true,
+                opacity: 0.6
+            });
+
+            // Apply the same shaders to wireframe material
+            wireframeMaterial.vertexNode = normalMaterial.vertexNode;
+            wireframeMaterial.colorNode = normalMaterial.colorNode;
+
+            // Create sphere geometry
+            const geometry = new THREE.SphereGeometry(1.5, 64, 64);
+            const mesh = new THREE.Mesh(geometry, normalMaterial);
             scene.add(mesh);
+
+            // Create spike geometry (cone shape)
+            const spikeGeometry = new THREE.ConeGeometry(0.05, 0.8, 6);
+            const spikeMaterial = new THREE.MeshStandardMaterial({
+                color: 0xff4444,
+                transparent: true,
+                opacity: 0.8
+            });
+
+            // Create spike groups
+            const bassSpikes = [];
+            const midSpikes = [];
+            const highSpikes = [];
+
+            // Helper function to create spikes at positions
+            const createSpike = (position, group) => {
+                const spike = new THREE.Mesh(spikeGeometry, spikeMaterial.clone());
+                spike.position.copy(position);
+                // Orient spike to point outward from sphere center
+                spike.lookAt(position.clone().multiplyScalar(2));
+                scene.add(spike);
+                group.push(spike);
+                return spike;
+            };
+
+            // Create bass spikes (bottom hemisphere, 8 spikes)
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2;
+                const x = Math.cos(angle) * 1.3;
+                const z = Math.sin(angle) * 1.3;
+                const y = -0.8; // Bottom position
+                createSpike(new THREE.Vector3(x, y, z), bassSpikes);
+            }
+
+            // Create mid spikes (equatorial, 12 spikes)
+            for (let i = 0; i < 12; i++) {
+                const angle = (i / 12) * Math.PI * 2;
+                const x = Math.cos(angle) * 1.4;
+                const z = Math.sin(angle) * 1.4;
+                const y = 0; // Middle position
+                createSpike(new THREE.Vector3(x, y, z), midSpikes);
+            }
+
+            // Create high spikes (top hemisphere, 6 spikes)
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2;
+                const x = Math.cos(angle) * 1.2;
+                const z = Math.sin(angle) * 1.2;
+                const y = 0.7; // Top position
+                createSpike(new THREE.Vector3(x, y, z), highSpikes);
+            }
+
+            // Wireframe toggle functionality
+            const wireframeToggle = document.getElementById('wireframeToggle');
+            wireframeToggle.checked = true; // Enable wireframe by default
+            mesh.material = wireframeMaterial; // Set wireframe as initial material
+            wireframeToggle.addEventListener('change', (e) => {
+                mesh.material = e.target.checked ? wireframeMaterial : normalMaterial;
+            });
 
             // Add lights
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
@@ -157,10 +531,34 @@
             renderer.setAnimationLoop(() => {
                 // Update time uniform
                 timeUniform.value = (Date.now() - startTime) / 1000;
-                
+
                 updateAudio();
-                controls.update();
+                updateEQ();
+                controls.update(); // This should handle damping and zoom
                 renderer.render(scene, camera);
+            });
+
+            // Debug: Log camera info to verify controls and transformations
+            let lastCameraPos = camera.position.clone();
+            let lastCameraRot = camera.rotation.clone();
+            setInterval(() => {
+                const currentPos = camera.position;
+                const currentRot = camera.rotation;
+                if (!currentPos.equals(lastCameraPos) || !currentRot.equals(lastCameraRot)) {
+                    // console.log('Camera - Pos:', currentPos, 'Rot X:', currentRot.x.toFixed(3), 'Y:', currentRot.y.toFixed(3), 'Z:', currentRot.z.toFixed(3), 'FOV:', camera.fov);
+                    lastCameraPos.copy(currentPos);
+                    lastCameraRot.copy(currentRot);
+                }
+            }, 200);
+
+            // Test camera movement on key press
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowUp') camera.position.z -= 0.5;
+                if (e.key === 'ArrowDown') camera.position.z += 0.5;
+                if (e.key === 'ArrowLeft') camera.position.x -= 0.5;
+                if (e.key === 'ArrowRight') camera.position.x += 0.5;
+                camera.updateProjectionMatrix();
+                console.log('Manual camera move - Pos:', camera.position);
             });
 
             window.addEventListener('resize', () => {
@@ -170,12 +568,80 @@
             });
         }
 
+        function setupEQ() {
+            const columns = ['bassColumn', 'midColumn', 'highColumn'];
+
+            columns.forEach(columnId => {
+                const column = document.getElementById(columnId);
+
+                // Create 6 segments for each column (bottom to top)
+                for (let i = 0; i < 6; i++) {
+                    const segment = document.createElement('div');
+                    segment.className = 'eq-segment';
+
+                    // Color coding: green (0-1), yellow (2-3), red (4-5)
+                    if (i >= 4) segment.classList.add('red');
+                    else if (i >= 2) segment.classList.add('yellow');
+                    // else stays green
+
+                    column.appendChild(segment);
+                }
+            });
+        }
+
+        function updateEQ() {
+            // Update peaks
+            bassPeak = Math.max(bassPeak, bassLevel);
+            midPeak = Math.max(midPeak, midLevel);
+            highPeak = Math.max(highPeak, highLevel);
+
+            // Update segments for each column
+            updateColumn('bassColumn', bassLevel, bassPeak);
+            updateColumn('midColumn', midLevel, midPeak);
+            updateColumn('highColumn', highLevel, highPeak);
+
+            // Decay peaks over time
+            bassPeak = Math.max(0, bassPeak - peakFallSpeed);
+            midPeak = Math.max(0, midPeak - peakFallSpeed);
+            highPeak = Math.max(0, highPeak - peakFallSpeed);
+        }
+
+        function updateColumn(columnId, level, peak) {
+            const column = document.getElementById(columnId);
+            const segments = column.querySelectorAll('.eq-segment');
+            const peakElement = column.querySelector('.eq-peak');
+
+            // Calculate which segments should be visible (0-6 based on level)
+            const activeSegments = Math.floor(level * 6);
+
+            // Update segment visibility
+            segments.forEach((segment, index) => {
+                if (index < activeSegments) {
+                    segment.style.opacity = '1';
+                } else {
+                    segment.style.opacity = '0.2';
+                }
+            });
+
+            // Update peak position (invert because we want it to go up)
+            const peakPosition = (1 - peak) * 100; // Convert to percentage from bottom
+            peakElement.style.top = `${peakPosition}%`;
+        }
+
         async function setupAudio() {
             try {
                 // Resume audio context on user interaction (required by browsers)
-                const resumeAudio = async () => {
-                    if (audioContext && audioContext.state === 'suspended') {
-                        await audioContext.resume();
+                const resumeAudio = async (event) => {
+                    // Only resume if clicking on the start note or non-interactive areas
+                    if (event.target.id === 'startNote' ||
+                        event.target === document.body ||
+                        (!event.target.closest('#controls') && !event.target.closest('#eq'))) {
+                        if (audioContext && audioContext.state === 'suspended') {
+                            await audioContext.resume();
+                        }
+                        // Fade out the start note
+                        const startNote = document.getElementById('startNote');
+                        startNote.classList.add('hidden');
                     }
                 };
                 document.addEventListener('click', resumeAudio, { once: true });
@@ -319,6 +785,77 @@
                 `Mid: ${midLevel.toFixed(2)}<br>` +
                 `High: ${highLevel.toFixed(2)}`;
         }
+
+        // ImGui Control Panel Setup
+        function setupImGuiControls() {
+            // Collapsible functionality
+            const imguiWindow = document.querySelector('.imgui-window');
+            const imguiTitle = document.querySelector('.imgui-title');
+
+            imguiTitle.addEventListener('click', () => {
+                imguiWindow.classList.toggle('collapsed');
+            });
+
+            const amplitudeSlider = document.getElementById('amplitudeSlider');
+            const amplitudeValue = document.getElementById('amplitudeValue');
+            const noiseScaleSlider = document.getElementById('noiseScaleSlider');
+            const noiseScaleValue = document.getElementById('noiseScaleValue');
+            const noiseFreqSlider = document.getElementById('noiseFreqSlider');
+            const noiseFreqValue = document.getElementById('noiseFreqValue');
+            const timeModSlider = document.getElementById('timeModSlider');
+            const timeModValue = document.getElementById('timeModValue');
+            const rotationSpeedSlider = document.getElementById('rotationSpeedSlider');
+            const rotationSpeedValue = document.getElementById('rotationSpeedValue');
+
+            // Amplitude control
+            amplitudeSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                wobbleAmplitude.value = value;
+                amplitudeValue.textContent = value.toFixed(2);
+            });
+
+            // Noise scale control
+            noiseScaleSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                noiseScale.value = value;
+                noiseScaleValue.textContent = value.toFixed(1);
+            });
+
+            // Noise frequency control
+            noiseFreqSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                noiseFrequency.value = value;
+                noiseFreqValue.textContent = value.toFixed(1);
+            });
+
+            // Time modulation control
+            timeModSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                timeModulation.value = value;
+                timeModValue.textContent = value.toFixed(1);
+            });
+
+            // Rotation speed control
+            rotationSpeedSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                rotationSpeed.value = value;
+                rotationSpeedValue.textContent = value.toFixed(1);
+            });
+
+            // Initialize display values
+            amplitudeValue.textContent = wobbleAmplitude.value.toFixed(2);
+            noiseScaleValue.textContent = noiseScale.value.toFixed(1);
+            noiseFreqValue.textContent = noiseFrequency.value.toFixed(1);
+            timeModValue.textContent = timeModulation.value.toFixed(1);
+            rotationSpeedValue.textContent = rotationSpeed.value.toFixed(1);
+        }
+
+        (async () => {
+            await init();
+            // Call setup after everything is initialized
+            setupImGuiControls();
+        })();
+            
 
     </script>
 </body>
