@@ -1,10 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Audio-Reactive TSL Demo</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; }
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+        }
+
         #info {
             position: absolute;
             top: 10px;
@@ -13,6 +19,7 @@
             font-family: monospace;
             z-index: 100;
         }
+
         #controls {
             position: absolute;
             top: 10px;
@@ -21,14 +28,17 @@
             font-family: monospace;
             z-index: 100;
         }
+
         #controls label {
             display: block;
             margin-bottom: 5px;
             cursor: pointer;
         }
+
         #controls input[type="checkbox"] {
             margin-right: 5px;
         }
+
         #eq {
             position: absolute;
             bottom: 20px;
@@ -38,20 +48,29 @@
             gap: 10px;
             z-index: 100;
         }
+
         .eq-column {
             display: flex;
             flex-direction: column-reverse;
             gap: 2px;
             width: 20px;
         }
+
         .eq-segment {
             height: 15px;
             background: #00ff00;
             border: 1px solid #000;
             transition: opacity 0.1s ease;
         }
-        .eq-segment.yellow { background: #ffff00; }
-        .eq-segment.red { background: #ff0000; }
+
+        .eq-segment.yellow {
+            background: #ffff00;
+        }
+
+        .eq-segment.red {
+            background: #ff0000;
+        }
+
         .eq-peak {
             position: absolute;
             width: 20px;
@@ -60,6 +79,7 @@
             transition: top 0.3s ease;
             pointer-events: none;
         }
+
         #startNote {
             position: absolute;
             top: 50%;
@@ -70,10 +90,15 @@
             font-size: 24px;
             text-align: center;
             z-index: 200;
-            opacity: 1;
+            opacity: 0.7;
             transition: opacity 0.5s ease-out;
             pointer-events: none;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
         }
+
         #startNote.hidden {
             opacity: 0;
         }
@@ -175,8 +200,65 @@
             color: #ffffff;
             font-family: monospace;
         }
+
+        /* Audio Controls */
+        #audioControls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(35, 35, 35, 0.95);
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 12px;
+            color: #cccccc;
+            z-index: 100;
+        }
+
+        #audioControls button {
+            background: #2d2d2d;
+            border: 1px solid #555;
+            color: #ffffff;
+            padding: 4px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        #audioControls button:hover {
+            background: #3d3d3d;
+        }
+
+        #audioControls input[type="range"] {
+            background: #444;
+            border: 1px solid #666;
+            border-radius: 2px;
+            height: 12px;
+            outline: none;
+        }
+
+        #seekSlider {
+            flex: 2;
+            min-width: 200px;
+        }
+
+        #volumeSlider {
+            width: 60px;
+        }
+
+        #audioControls span {
+            color: #ffffff;
+            font-family: monospace;
+            min-width: 35px;
+            text-align: center;
+        }
     </style>
 </head>
+
 <body>
     <div id="info">Loading audio...</div>
     <div id="controls">
@@ -184,6 +266,22 @@
             <input type="checkbox" id="wireframeToggle">
             Wireframe
         </label>
+        <label style="position: absolute; left: 1000px;">
+            Audio File:
+            <input type="file" id="audioFileInput" accept="audio/*">
+        </label>
+    </div>
+
+    <!-- Hidden HTML5 Audio Element -->
+    <audio id="audioElement" controls style="display: none;"></audio>
+
+    <!-- Audio Controls -->
+    <div id="audioControls">
+        <button id="playPauseBtn">▶️ Play</button>
+        <input type="range" id="seekSlider" min="0" max="100" value="0" step="0.1">
+        <span id="currentTime">0:00</span> / <span id="duration">0:00</span>
+        <input type="range" id="volumeSlider" min="0" max="1" value="0.5" step="0.01">
+        <button id="uploadBtn">📁 Upload Audio</button>
     </div>
 
     <div id="eq">
@@ -203,7 +301,7 @@
     <!-- ImGui-style Control Panel -->
     <div id="imgui-panel">
         <div class="imgui-window">
-            <div class="imgui-title">Wobble Controls</div>
+            <div class="imgui-title">Controls</div>
             <div class="imgui-content">
                 <div class="imgui-slider">
                     <label>Amplitude</label>
@@ -227,9 +325,25 @@
                 </div>
                 <div class="imgui-slider">
                     <label>Rotation Speed (°/s)</label>
-                    <input type="range" id="rotationSpeedSlider" min="-5" max="5" step="0.1" value="0.5">
-                    <span id="rotationSpeedValue">0.5</span>
+                    <input type="range" id="rotationSpeedSlider" min="-180" max="180" step="0.1" value="30.0">
+                    <span id="rotationSpeedValue">30.0</span>
                 </div>
+                <div class="imgui-slider">
+                    <label>Specularity</label>
+                    <input type="range" id="specularitySlider" min="0" max="1" step="0.01" value="0.5">
+                    <span id="specularityValue">0.5</span>
+                </div>
+                <div class="imgui-slider">
+                    <label>Spike Base Offset</label>
+                    <input type="range" id="spikeOffsetSlider" min="1.2" max="2.5" step="0.01" value="1.6">
+                    <span id="spikeOffsetValue">1.6</span>
+                </div>
+
+                <!-- Bloom Controls Subsection (Disabled for now) -->
+                <!-- <div style="border-top: 1px solid #555; margin: 8px 0; padding-top: 8px;">
+                    <div style="color: #cccccc; font-size: 11px; margin-bottom: 6px; font-weight: bold;">Bloom Effects (WebGPU)</div>
+                    <div style="color: #888; font-size: 10px; margin-bottom: 6px;">Coming soon with WebGPU shaders</div>
+                </div> -->
             </div>
         </div>
     </div>
@@ -258,12 +372,18 @@
         } from 'three/tsl';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        let camera, scene, renderer, controls;
+        let camera, scene, renderer, controls, specularity, spikeBaseOffset;
         let audioContext, audioSource, analyser, dataArray;
         let bassFilter, midFilter, highFilter;
         let bassUniform, midUniform, highUniform;
         let bassGain, midGain, highGain;
         let wobbleAmplitude, noiseScale, noiseFrequency, timeModulation, rotationSpeed;
+
+        // Audio control variables
+        let audioElement = null;
+        let audioSourceNode = null;
+        let masterGainNode = null;
+        let audioInitialized = false;
 
         // Audio analysis values
         let bassLevel = 0;
@@ -276,7 +396,7 @@
         let highPeak = 0;
         const peakFallSpeed = 0.02;
 
-        
+
 
         async function init() {
             // Setup renderer
@@ -284,8 +404,14 @@
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setClearColor('#000000');
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
             document.body.appendChild(renderer.domElement);
             await renderer.init();
+
+            // For now, skip post-processing due to WebGPU compatibility issues
+            // Will implement custom bloom shader later
+            const composer = { render: () => renderer.render(scene, camera) };
 
             // Ensure the canvas can receive pointer events
             renderer.domElement.style.touchAction = 'none';
@@ -330,10 +456,14 @@
             noiseScale = uniform(2.0);
             noiseFrequency = uniform(1.0);
             timeModulation = uniform(2.0);
-            rotationSpeed = uniform(0.5); // Half degree per second
+            rotationSpeed = uniform(30.0); // Half degree per second
+            specularity = uniform(0.5); // Specularity/metalness control (0-1)
 
             // Create normal material
-            const normalMaterial = new THREE.MeshStandardMaterial();
+            const normalMaterial = new THREE.MeshStandardMaterial({
+                metalness: 0.5,
+                roughness: 0.5
+            });
 
             // Vertex shader - bass affects geometry distortion with camera awareness
             normalMaterial.vertexNode = Fn(() => {
@@ -367,32 +497,8 @@
                     .mul(sin(time.mul(timeModulation).add(worldPos.x.add(worldPos.y).add(worldPos.z).mul(0.1))).mul(0.3).add(0.7)) // Additional time modulation
                     .mul(wobbleAmplitude); // Scale displacement
 
-                // Spike displacement based on audio frequencies and sphere regions
-                let spikeDisplacement = float(0);
-
-                // Lower spikes (bass) - bottom third of sphere (y < -0.3)
-                const bassSpike = bassUniform.mul(1.5).mul(sin(time.mul(3.0)).mul(0.5).add(0.5));
-                const bassMask = pos.y.add(0.3).mul(-1).clamp(0, 1); // 1 when y < -0.3, 0 otherwise
-                spikeDisplacement = spikeDisplacement.add(bassSpike.mul(bassMask));
-
-                // Equator spikes (mid) - middle third of sphere (-0.3 < y < 0.3)
-                const midSpike = midUniform.mul(1.5).mul(sin(time.mul(2.5).add(pos.x.mul(0.5))).mul(0.5).add(0.5));
-                // Create mask for middle region: 1 when -0.3 < y < 0.3, 0 otherwise
-                const midLower = pos.y.add(0.3).clamp(0, 1); // 1 when y > -0.3
-                const midUpper = pos.y.sub(0.3).mul(-1).clamp(0, 1); // 1 when y < 0.3
-                const midMask = midLower.mul(midUpper);
-                spikeDisplacement = spikeDisplacement.add(midSpike.mul(midMask));
-
-                // Northern spikes (high) - top third of sphere (y > 0.3)
-                const highSpike = highUniform.mul(1.5).mul(sin(time.mul(4.0).add(pos.z.mul(0.3))).mul(0.5).add(0.5));
-                const highMask = pos.y.sub(0.3).clamp(0, 1); // 1 when y > 0.3, 0 otherwise
-                spikeDisplacement = spikeDisplacement.add(highSpike.mul(highMask));
-
-                // Apply both wobble and spike displacements
-                const totalDisplacement = displacement.add(spikeDisplacement);
-
                 // Apply displacement in world space
-                const displacedWorldPos = worldPos.add(worldNormal.mul(totalDisplacement));
+                const displacedWorldPos = worldPos.add(worldNormal.mul(displacement));
 
                 // Transform back to view space for rendering
                 const viewPos = cameraViewMatrix.mul(vec4(displacedWorldPos, 1.0));
@@ -401,8 +507,8 @@
                 const clipPos = cameraProjectionMatrix.mul(viewPos);
 
                 return clipPos;
-            })();   
-            
+            })();
+
             // Fragment shader - gradient from top to bottom with independent hue offsets
             normalMaterial.colorNode = Fn(() => {
                 const uvs = uv();
@@ -447,7 +553,9 @@
             const wireframeMaterial = new THREE.MeshStandardMaterial({
                 wireframe: true,
                 transparent: true,
-                opacity: 0.6
+                opacity: 0.6,
+                metalness: 0.5,
+                roughness: 0.5
             });
 
             // Apply the same shaders to wireframe material
@@ -457,15 +565,107 @@
             // Create sphere geometry
             const geometry = new THREE.SphereGeometry(1.5, 64, 64);
             const mesh = new THREE.Mesh(geometry, normalMaterial);
+            mesh.receiveShadow = true; // Sphere receives shadows from spikes
             scene.add(mesh);
+
+            // Create spikes container for rotation
+            const spikesContainer = new THREE.Object3D();
+            scene.add(spikesContainer);
 
             // Create spike geometry (cone shape)
             const spikeGeometry = new THREE.ConeGeometry(0.05, 0.8, 6);
-            const spikeMaterial = new THREE.MeshStandardMaterial({
-                color: 0xff4444,
-                transparent: true,
-                opacity: 0.8
-            });
+
+            // Cube emission system
+            const cubeGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+            const cubePool = [];
+            const activeCubes = [];
+            const CUBE_POOL_SIZE = 1000;
+            const EMISSION_COOLDOWN = 300; // milliseconds
+            let lastBassPeak = 0;
+            let lastMidPeak = 0;
+            let lastHighPeak = 0;
+
+            // Function to create cube material based on emission direction
+            const createCubeMaterial = (direction, useWireframe) => {
+                // Use direction vector to create color variation
+                const hue = (Math.atan2(direction.z, direction.x) + Math.PI) / (Math.PI * 2);
+                const saturation = 0.8 + Math.abs(direction.y) * 0.2; // More saturated when vertical
+                const lightness = 0.6 + Math.abs(direction.y) * 0.2; // Brighter when vertical
+
+                // Convert HSL to RGB
+                const c = (1 - Math.abs(2 * lightness - 1)) * saturation;
+                const x = c * (1 - Math.abs((hue * 6) % 2 - 1));
+                const m = lightness - c / 2;
+
+                let r, g, b;
+                if (hue < 1/6) { r = c; g = x; b = 0; }
+                else if (hue < 2/6) { r = x; g = c; b = 0; }
+                else if (hue < 3/6) { r = 0; g = c; b = x; }
+                else if (hue < 4/6) { r = 0; g = x; b = c; }
+                else if (hue < 5/6) { r = x; g = 0; b = c; }
+                else { r = c; g = 0; b = x; }
+
+                const color = Math.round((r + m) * 255) * 0x10000 + Math.round((g + m) * 255) * 0x100 + Math.round((b + m) * 255);
+
+                return new THREE.MeshStandardMaterial({
+                    wireframe: useWireframe,
+                    transparent: true,
+                    opacity: 1.0,
+                    color: color,
+                    metalness: 0.8,
+                    roughness: 0.2
+                });
+            };
+
+            // Initialize cube pool with default materials
+            for (let i = 0; i < CUBE_POOL_SIZE; i++) {
+                const defaultMaterial = createCubeMaterial(new THREE.Vector3(0, 1, 0), true); // Default upward, wireframe
+                const cube = new THREE.Mesh(cubeGeometry, defaultMaterial);
+                cube.visible = false;
+                cube.userData.emissionDirection = new THREE.Vector3(0, 1, 0); // Default upward direction
+                scene.add(cube);
+                cubePool.push(cube);
+            }
+
+            // Get cube from pool
+            const getCubeFromPool = () => {
+                for (let cube of cubePool) {
+                    if (!cube.visible) {
+                        return cube;
+                    }
+                }
+                return null; // Pool exhausted
+            };
+
+            
+
+            // Emit cubes from spike group
+            const emitCubesFromSpikes = (spikeGroup, count = 3, currentTime) => {
+                for (let i = 0; i < Math.min(count, spikeGroup.length); i++) {
+                    const spike = spikeGroup[i];
+                    const cube = getCubeFromPool();
+                    if (cube) {
+                        // Position cube at spike tip (spike position + outward direction * spike height)
+                        const spikeWorldPos = new THREE.Vector3();
+                        spike.getWorldPosition(spikeWorldPos);
+                        const outwardDir = spikeWorldPos.clone().normalize();
+                        const tipPosition = spikeWorldPos.clone().add(outwardDir.multiplyScalar(0.4));
+
+                        // Create material based on emission direction
+                        const useWireframe = mesh.material.wireframe || false;
+                        cube.material = createCubeMaterial(outwardDir, useWireframe);
+                        cube.userData.emissionDirection = outwardDir.clone(); // Store for material updates
+
+                        cube.position.copy(tipPosition);
+                        cube.emissionPosition = tipPosition.clone();
+                        cube.emissionTime = currentTime;
+                        cube.scale.setScalar(1.0);
+                        cube.castShadow = true; // Cubes also cast shadows
+                        cube.visible = true;
+                        activeCubes.push(cube);
+                    }
+                }
+            };
 
             // Create spike groups
             const bassSpikes = [];
@@ -474,56 +674,154 @@
 
             // Helper function to create spikes at positions
             const createSpike = (position, group) => {
-                const spike = new THREE.Mesh(spikeGeometry, spikeMaterial.clone());
+                const spike = new THREE.Mesh(spikeGeometry, wireframeMaterial); // Start with wireframe material since it's default
                 spike.position.copy(position);
+                spike.userData.originalPosition = position.clone(); // Store original position for extension
+                spike.castShadow = true; // Spikes cast shadows on the sphere
+
                 // Orient spike to point outward from sphere center
-                spike.lookAt(position.clone().multiplyScalar(2));
-                scene.add(spike);
+                // Calculate direction from origin to position
+                const direction = position.clone().normalize();
+                // Create quaternion that rotates Y-axis to point in the direction
+                const up = new THREE.Vector3(0, 1, 0);
+                const quaternion = new THREE.Quaternion();
+                quaternion.setFromUnitVectors(up, direction);
+                spike.setRotationFromQuaternion(quaternion);
+
+                spikesContainer.add(spike);
                 group.push(spike);
                 return spike;
             };
 
-            // Create bass spikes (bottom hemisphere, 8 spikes)
-            for (let i = 0; i < 8; i++) {
-                const angle = (i / 8) * Math.PI * 2;
-                const x = Math.cos(angle) * 1.3;
-                const z = Math.sin(angle) * 1.3;
-                const y = -0.8; // Bottom position
-                createSpike(new THREE.Vector3(x, y, z), bassSpikes);
+            // Function to update spike positions based on base offset
+            const updateSpikePositions = (baseOffset) => {
+                // Clear existing spikes
+                bassSpikes.length = 0;
+                midSpikes.length = 0;
+                highSpikes.length = 0;
+
+                // Clear spikes container
+                while (spikesContainer.children.length > 0) {
+                    spikesContainer.remove(spikesContainer.children[0]);
+                }
+
+                // Recreate bass spikes (bottom hemisphere, 8 spikes)
+                for (let i = 0; i < 8; i++) {
+                    const angle = (i / 8) * Math.PI * 2;
+                    const radius = baseOffset; // Use dynamic base offset
+                    const x = Math.cos(angle) * radius;
+                    const z = Math.sin(angle) * radius;
+                    const y = -Math.sqrt(Math.max(0, radius * radius - radius * radius * 0.1)); // Position on sphere surface
+                    const spike = createSpike(new THREE.Vector3(x, y, z), bassSpikes);
+                    spike.userData.originalPosition = new THREE.Vector3(x, y, z);
+                }
+
+                // Recreate mid spikes (equatorial, 12 spikes)
+                for (let i = 0; i < 12; i++) {
+                    const angle = (i / 12) * Math.PI * 2;
+                    const radius = baseOffset + 0.1; // Slightly further out
+                    const x = Math.cos(angle) * radius;
+                    const z = Math.sin(angle) * radius;
+                    const y = 0; // Middle position
+                    const spike = createSpike(new THREE.Vector3(x, y, z), midSpikes);
+                    spike.userData.originalPosition = new THREE.Vector3(x, y, z);
+                }
+
+                // Recreate high spikes (top hemisphere, 6 spikes)
+                for (let i = 0; i < 6; i++) {
+                    const angle = (i / 6) * Math.PI * 2;
+                    const radius = baseOffset - 0.1; // Slightly closer
+                    const x = Math.cos(angle) * radius;
+                    const z = Math.sin(angle) * radius;
+                    const y = Math.sqrt(Math.max(0, radius * radius - radius * radius * 0.1)); // Position on sphere surface
+                    const spike = createSpike(new THREE.Vector3(x, y, z), highSpikes);
+                    spike.userData.originalPosition = new THREE.Vector3(x, y, z);
+                }
+            };
+
+            // Initialize spikes with default offset
+            spikeBaseOffset = 1.6;
+            updateSpikePositions(1.6);
+
+            // Bloom parameters (disabled for WebGPU)
+            // bloomStrength = 1.5;
+            // bloomRadius = 0.4;
+            // bloomThreshold = 0.85;
+
+            // Spike offset slider setup (inside init scope)
+            const spikeOffsetSlider = document.getElementById('spikeOffsetSlider');
+            const spikeOffsetValue = document.getElementById('spikeOffsetValue');
+
+            if (spikeOffsetSlider) {
+                spikeOffsetSlider.addEventListener('input', (e) => {
+                    const value = parseFloat(e.target.value);
+                    spikeBaseOffset = value;
+                    if (spikeOffsetValue) {
+                        spikeOffsetValue.textContent = value.toFixed(2);
+                    }
+                    updateSpikePositions(value);
+                });
+
+                // Initialize display value
+                if (spikeOffsetValue) {
+                    spikeOffsetValue.textContent = spikeBaseOffset.toFixed(2);
+                }
             }
 
-            // Create mid spikes (equatorial, 12 spikes)
-            for (let i = 0; i < 12; i++) {
-                const angle = (i / 12) * Math.PI * 2;
-                const x = Math.cos(angle) * 1.4;
-                const z = Math.sin(angle) * 1.4;
-                const y = 0; // Middle position
-                createSpike(new THREE.Vector3(x, y, z), midSpikes);
-            }
-
-            // Create high spikes (top hemisphere, 6 spikes)
-            for (let i = 0; i < 6; i++) {
-                const angle = (i / 6) * Math.PI * 2;
-                const x = Math.cos(angle) * 1.2;
-                const z = Math.sin(angle) * 1.2;
-                const y = 0.7; // Top position
-                createSpike(new THREE.Vector3(x, y, z), highSpikes);
-            }
+            // Bloom sliders disabled for WebGPU compatibility
+            // Will re-enable with custom WebGPU bloom shader
 
             // Wireframe toggle functionality
             const wireframeToggle = document.getElementById('wireframeToggle');
             wireframeToggle.checked = true; // Enable wireframe by default
             mesh.material = wireframeMaterial; // Set wireframe as initial material
+
+            // Function to update all materials (spikes and cubes)
+            const updateAllMaterials = (useWireframe) => {
+                const spikeMaterial = useWireframe ? wireframeMaterial : normalMaterial;
+
+                [...bassSpikes, ...midSpikes, ...highSpikes].forEach(spike => {
+                    spike.material = spikeMaterial;
+                });
+
+                // Update cube materials with direction-based colors
+                [...activeCubes, ...cubePool].forEach(cube => {
+                    if (cube.userData.emissionDirection) {
+                        cube.material = createCubeMaterial(cube.userData.emissionDirection, useWireframe);
+                        cube.material.opacity = 1.0; // Reset opacity
+                    }
+                });
+            };
+
+            // Set initial materials to wireframe
+            updateAllMaterials(true);
+
             wireframeToggle.addEventListener('change', (e) => {
-                mesh.material = e.target.checked ? wireframeMaterial : normalMaterial;
+                const useWireframe = e.target.checked;
+                mesh.material = useWireframe ? wireframeMaterial : normalMaterial;
+                updateAllMaterials(useWireframe);
             });
 
-            // Add lights
+            // Add lights with shadow casting
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
             scene.add(ambientLight);
-            
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
             directionalLight.position.set(5, 5, 5);
+            directionalLight.castShadow = true;
+
+            // Configure shadow properties for high quality shadows
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -10;
+            directionalLight.shadow.camera.right = 10;
+            directionalLight.shadow.camera.top = 10;
+            directionalLight.shadow.camera.bottom = -10;
+            directionalLight.shadow.bias = -0.0001; // Reduce shadow acne
+            directionalLight.shadow.normalBias = 0.02; // Reduce self-shadowing artifacts
+
             scene.add(directionalLight);
 
             // Animation loop
@@ -531,11 +829,122 @@
             renderer.setAnimationLoop(() => {
                 // Update time uniform
                 timeUniform.value = (Date.now() - startTime) / 1000;
+                const time = timeUniform.value;
 
                 updateAudio();
                 updateEQ();
+
+                // Update material specularity
+                const specValue = specularity.value;
+                normalMaterial.metalness = specValue;
+                normalMaterial.roughness = 1.0 - specValue; // Inverse relationship
+                wireframeMaterial.metalness = specValue;
+                wireframeMaterial.roughness = 1.0 - specValue;
+
+                // Bloom disabled for WebGPU compatibility
+                // bloomPass.strength = bloomStrength;
+                // bloomPass.radius = bloomRadius;
+                // bloomPass.threshold = bloomThreshold;
+
+                // Update spikes container rotation to match sphere rotation
+                const rotationAngle = (time * rotationSpeed.value * Math.PI) / 180.0;
+                spikesContainer.rotation.y = rotationAngle;
+
+                // Update spike positions based on audio (extend outward instead of scaling)
+                bassSpikes.forEach((spike, i) => {
+                    const baseExtension = bassLevel * 0.8; // How far to extend
+                    const animation = Math.sin(time * 3.0 + i * 0.5) * 0.2 + 0.9;
+                    const totalExtension = baseExtension * animation;
+
+                    // Calculate original base position and outward direction
+                    const originalPos = spike.userData.originalPosition;
+                    const outwardDir = originalPos.clone().normalize();
+
+                    // Move spike tip outward along the normal
+                    const extendedPos = originalPos.clone().add(outwardDir.clone().multiplyScalar(totalExtension));
+                    spike.position.copy(extendedPos);
+
+                    // Also scale the spike slightly for additional effect
+                    spike.scale.setScalar(1.0 + baseExtension * 0.3);
+                });
+
+                midSpikes.forEach((spike, i) => {
+                    const baseExtension = midLevel * 0.8;
+                    const animation = Math.sin(time * 2.5 + i * 0.4) * 0.3 + 0.8;
+                    const totalExtension = baseExtension * animation;
+
+                    const originalPos = spike.userData.originalPosition;
+                    const outwardDir = originalPos.clone().normalize();
+
+                    const extendedPos = originalPos.clone().add(outwardDir.clone().multiplyScalar(totalExtension));
+                    spike.position.copy(extendedPos);
+
+                    spike.scale.setScalar(1.0 + baseExtension * 0.3);
+                });
+
+                highSpikes.forEach((spike, i) => {
+                    const baseExtension = highLevel * 0.8;
+                    const animation = Math.sin(time * 4.0 + i * 0.6) * 0.4 + 0.7;
+                    const totalExtension = baseExtension * animation;
+
+                    const originalPos = spike.userData.originalPosition;
+                    const outwardDir = originalPos.clone().normalize();
+
+                    const extendedPos = originalPos.clone().add(outwardDir.clone().multiplyScalar(totalExtension));
+                    spike.position.copy(extendedPos);
+
+                    spike.scale.setScalar(1.0 + baseExtension * 0.3);
+                });
+
+                // Cube emission and animation
+                const currentTime = Date.now();
+
+                // Check for frequency peaks and emit cubes
+                if (bassLevel > 0.3 && currentTime - lastBassPeak > EMISSION_COOLDOWN) {
+                    emitCubesFromSpikes(bassSpikes, 2, time);
+                    lastBassPeak = currentTime;
+                }
+                if (midLevel > 0.6 && currentTime - lastMidPeak > EMISSION_COOLDOWN) {
+                    emitCubesFromSpikes(midSpikes, 3, time);
+                    lastMidPeak = currentTime;
+                }
+                if (highLevel > 0.6 && currentTime - lastHighPeak > EMISSION_COOLDOWN) {
+                    emitCubesFromSpikes(highSpikes, 2, time);
+                    lastHighPeak = currentTime;
+                }
+
+                // Animate active cubes
+                for (let i = activeCubes.length - 1; i >= 0; i--) {
+                    const cube = activeCubes[i];
+                    const age = time - cube.emissionTime;
+                    const speed = 3.0; // Units per second outward
+                    const distance = age * speed;
+
+                    // Calculate new position: emission position + outward direction * distance
+                    const outwardDir = cube.emissionPosition.clone().normalize();
+                    cube.position.copy(cube.emissionPosition).add(outwardDir.multiplyScalar(distance));
+
+                    // Scale and fade based on distance from emission point
+                    const distanceFromEmission = distance;
+                    const maxDistance = 12.0; // Maximum travel distance
+
+                    if (distanceFromEmission > maxDistance) {
+                        // Remove cube
+                        cube.visible = false;
+                        activeCubes.splice(i, 1);
+                    } else {
+                        // Fade and scale based on distance
+                        const fadeProgress = distanceFromEmission / maxDistance;
+                        const brightness = Math.max(0.0, 1.0 - fadeProgress);
+                        const scale = Math.max(0.1, 1.0 - fadeProgress * 0.8);
+
+                        cube.material.opacity = brightness;
+                        cube.scale.setScalar(scale);
+                    }
+                }
+
                 controls.update(); // This should handle damping and zoom
-                renderer.render(scene, camera);
+                composer.render();
             });
 
             // Debug: Log camera info to verify controls and transformations
@@ -628,39 +1037,92 @@
             peakElement.style.top = `${peakPosition}%`;
         }
 
-        async function setupAudio() {
+        async function setupAudio(src = '../audio/how.mp3') {
             try {
-                // Resume audio context on user interaction (required by browsers)
-                const resumeAudio = async (event) => {
-                    // Only resume if clicking on the start note or non-interactive areas
-                    if (event.target.id === 'startNote' ||
-                        event.target === document.body ||
-                        (!event.target.closest('#controls') && !event.target.closest('#eq'))) {
-                        if (audioContext && audioContext.state === 'suspended') {
-                            await audioContext.resume();
+                // Get HTML5 audio element
+                audioElement = document.getElementById('audioElement');
+                if (!audioElement) {
+                    console.error('Audio element not found in DOM');
+                    return;
+                }
+
+                if (!audioInitialized) {
+                    // First time setup - create Web Audio context and nodes
+                    console.log('Initializing Web Audio for first time');
+
+                    // Resume audio context and start playback on user interaction (required by browsers)
+                    const resumeAudio = async (event) => {
+                        // Only resume if clicking on the start note or non-interactive areas
+                        if (event.target.id === 'startNote' ||
+                            event.target === document.body ||
+                            (!event.target.closest('#controls') && !event.target.closest('#eq') && !event.target.closest('#audioControls'))) {
+                            if (audioContext && audioContext.state === 'suspended') {
+                                await audioContext.resume();
+                            }
+                            // Start audio playback on first interaction
+                            if (audioElement && audioElement.paused) {
+                                audioElement.play().catch(e => console.error('Auto-play failed:', e));
+                            }
+                            console.log('Audio context resumed and playback started');
+                            // Fade out the start note
+                            const startNote = document.getElementById('startNote');
+                            startNote.classList.add('hidden');
                         }
-                        // Fade out the start note
-                        const startNote = document.getElementById('startNote');
-                        startNote.classList.add('hidden');
+                    };
+                    document.addEventListener('click', resumeAudio, { once: true });
+                    document.addEventListener('touchstart', resumeAudio, { once: true });
+
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                // Get HTML5 audio element
+                audioElement = document.getElementById('audioElement');
+                if (!audioElement) {
+                    console.error('Audio element not found in DOM');
+                    return;
+                }
+                console.log('Setting audio src to:', src);
+                audioElement.src = src;
+                audioElement.loop = true;
+                audioElement.volume = 0.5; // Set initial volume
+
+                // Wait for audio to be loaded
+                await new Promise((resolve) => {
+                    const onLoaded = () => {
+                        console.log('Audio loaded successfully, duration:', audioElement.duration);
+                        resolve();
+                    };
+
+                    if (audioElement.readyState >= 2) { // HAVE_CURRENT_DATA or higher
+                        onLoaded();
+                    } else {
+                        audioElement.addEventListener('loadeddata', onLoaded, { once: true });
+                        audioElement.addEventListener('error', (e) => {
+                            console.error('Audio failed to load:', e);
+                            resolve(); // Resolve anyway to continue
+                        }, { once: true });
+
+                        // Also try to load explicitly
+                        audioElement.load();
                     }
-                };
-                document.addEventListener('click', resumeAudio, { once: true });
-                document.addEventListener('touchstart', resumeAudio, { once: true });
+                });
 
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                
-                // Load audio file
-                const response = await fetch('../audio/how.mp3');
-                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                const arrayBuffer = await response.arrayBuffer();
-                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                
-                // Create source
-                audioSource = audioContext.createBufferSource();
-                audioSource.buffer = audioBuffer;
-                audioSource.loop = true;
+                console.log('Audio loaded, creating Web Audio connection');
 
-                // Create master analyser for overall frequency analysis
+                // Create audio source node from HTML5 audio element
+                try {
+                    audioSourceNode = audioContext.createMediaElementSource(audioElement);
+                    console.log('Web Audio source node created successfully');
+                } catch (e) {
+                    console.error('Failed to create Web Audio source node:', e);
+                    // Continue without Web Audio analysis
+                }
+
+                    // Create master gain node for volume control
+                    masterGainNode = audioContext.createGain();
+                    masterGainNode.gain.value = 0.5;
+                    masterGainNode.connect(audioContext.destination);
+
+                // Create analysers for frequency analysis
                 analyser = audioContext.createAnalyser();
                 analyser.fftSize = 2048;
                 analyser.smoothingTimeConstant = 0.8;
@@ -669,49 +1131,44 @@
                 // Create bandpass filters for each frequency range
                 bassFilter = audioContext.createBiquadFilter();
                 bassFilter.type = 'bandpass';
-                bassFilter.frequency.value = 100; // Low frequencies
+                bassFilter.frequency.value = 100;
                 bassFilter.Q.value = 2;
 
                 midFilter = audioContext.createBiquadFilter();
                 midFilter.type = 'bandpass';
-                midFilter.frequency.value = 1000; // Mid frequencies
+                midFilter.frequency.value = 1000;
                 midFilter.Q.value = 2;
 
                 highFilter = audioContext.createBiquadFilter();
                 highFilter.type = 'bandpass';
-                highFilter.frequency.value = 5000; // High frequencies
+                highFilter.frequency.value = 5000;
                 highFilter.Q.value = 2;
 
-                // Create analysers for each filtered band
                 const bassAnalyser = audioContext.createAnalyser();
                 bassAnalyser.fftSize = 512;
                 bassAnalyser.smoothingTimeConstant = 0.6;
-                
+
                 const midAnalyser = audioContext.createAnalyser();
                 midAnalyser.fftSize = 512;
                 midAnalyser.smoothingTimeConstant = 0.6;
-                
+
                 const highAnalyser = audioContext.createAnalyser();
                 highAnalyser.fftSize = 512;
                 highAnalyser.smoothingTimeConstant = 0.6;
 
-                // Create master gain for output
-                const masterGain = audioContext.createGain();
-                masterGain.gain.value = 0.5;
-
                 // Connect audio graph:
-                // Source -> filters -> analysers (for analysis)
-                // Source -> master gain -> destination (for playback)
-                audioSource.connect(bassFilter);
-                audioSource.connect(midFilter);
-                audioSource.connect(highFilter);
-                audioSource.connect(masterGain);
-                
+                // HTML5 audio -> source node -> filters -> analysers
+                // HTML5 audio -> source node -> master gain -> destination
+                audioSourceNode.connect(bassFilter);
+                audioSourceNode.connect(midFilter);
+                audioSourceNode.connect(highFilter);
+                audioSourceNode.connect(masterGainNode);
+
                 bassFilter.connect(bassAnalyser);
                 midFilter.connect(midAnalyser);
                 highFilter.connect(highAnalyser);
-                
-                masterGain.connect(audioContext.destination);
+
+                masterGainNode.connect(audioContext.destination);
 
                 // Store analysers for update loop
                 window.bassAnalyser = bassAnalyser;
@@ -721,16 +1178,43 @@
                 window.midData = new Uint8Array(midAnalyser.frequencyBinCount);
                 window.highData = new Uint8Array(highAnalyser.frequencyBinCount);
 
-                // Start playback (will start when context resumes)
-                audioSource.start(0);
-                
-                // Try to resume immediately
-                if (audioContext.state === 'suspended') {
-                    await audioContext.resume();
+                    // Try to resume audio context
+                    if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+
+                    audioInitialized = true;
                 }
-                
-                document.getElementById('info').textContent = 'Audio playing - Click to interact';
-                
+
+                // Set audio source (works for both initial load and file changes)
+                console.log('Setting audio src to:', src);
+                audioElement.src = src;
+                audioElement.loop = true;
+                audioElement.volume = 0.5; // Set initial volume
+
+                // Wait for audio to be loaded
+                await new Promise((resolve) => {
+                    const onLoaded = () => {
+                        console.log('Audio loaded successfully, duration:', audioElement.duration);
+                        resolve();
+                    };
+
+                    if (audioElement.readyState >= 2) { // HAVE_CURRENT_DATA or higher
+                        onLoaded();
+                    } else {
+                        audioElement.addEventListener('loadeddata', onLoaded, { once: true });
+                        audioElement.addEventListener('error', () => {
+                            console.error('Audio failed to load');
+                            resolve(); // Resolve anyway to continue
+                        }, { once: true });
+
+                        // Also try to load explicitly
+                        audioElement.load();
+                    }
+                });
+
+                document.getElementById('info').textContent = 'Audio ready - Click to interact';
+
             } catch (error) {
                 console.error('Audio setup error:', error);
                 document.getElementById('info').textContent = 'Audio error: ' + error.message;
@@ -780,10 +1264,10 @@
             if (highUniform) highUniform.value = highLevel;
 
             // Update info
-            document.getElementById('info').innerHTML = 
-                `Bass: ${bassLevel.toFixed(2)}<br>` +
-                `Mid: ${midLevel.toFixed(2)}<br>` +
-                `High: ${highLevel.toFixed(2)}`;
+            // document.getElementById('info').innerHTML =
+            //     `Bass: ${bassLevel.toFixed(2)}<br>` +
+            //     `Mid: ${midLevel.toFixed(2)}<br>` +
+            //     `High: ${highLevel.toFixed(2)}`;
         }
 
         // ImGui Control Panel Setup
@@ -791,6 +1275,9 @@
             // Collapsible functionality
             const imguiWindow = document.querySelector('.imgui-window');
             const imguiTitle = document.querySelector('.imgui-title');
+
+            // Start collapsed by default
+            imguiWindow.classList.add('collapsed');
 
             imguiTitle.addEventListener('click', () => {
                 imguiWindow.classList.toggle('collapsed');
@@ -804,8 +1291,10 @@
             const noiseFreqValue = document.getElementById('noiseFreqValue');
             const timeModSlider = document.getElementById('timeModSlider');
             const timeModValue = document.getElementById('timeModValue');
-            const rotationSpeedSlider = document.getElementById('rotationSpeedSlider');
-            const rotationSpeedValue = document.getElementById('rotationSpeedValue');
+                const rotationSpeedSlider = document.getElementById('rotationSpeedSlider');
+                const rotationSpeedValue = document.getElementById('rotationSpeedValue');
+                const specularitySlider = document.getElementById('specularitySlider');
+                const specularityValue = document.getElementById('specularityValue');
 
             // Amplitude control
             amplitudeSlider.addEventListener('input', (e) => {
@@ -842,21 +1331,317 @@
                 rotationSpeedValue.textContent = value.toFixed(1);
             });
 
+            // Specularity control
+            specularitySlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                specularity.value = value;
+                specularityValue.textContent = value.toFixed(2);
+            });
+
             // Initialize display values
             amplitudeValue.textContent = wobbleAmplitude.value.toFixed(2);
             noiseScaleValue.textContent = noiseScale.value.toFixed(1);
             noiseFreqValue.textContent = noiseFrequency.value.toFixed(1);
             timeModValue.textContent = timeModulation.value.toFixed(1);
             rotationSpeedValue.textContent = rotationSpeed.value.toFixed(1);
+            specularityValue.textContent = specularity.value.toFixed(2);
         }
 
-        (async () => {
-            await init();
-            // Call setup after everything is initialized
-            setupImGuiControls();
-        })();
-            
+        function setupAudioStuff() {
 
+            // Setup file input and upload button
+            const audioFileInput = document.getElementById('audioFileInput');
+            const uploadBtn = document.getElementById('uploadBtn');
+
+            if (uploadBtn) {
+                uploadBtn.addEventListener('click', () => {
+                    console.log('Upload button clicked');
+                    if (audioFileInput) {
+                        audioFileInput.click();
+                    } else {
+                        console.error('Audio file input not found');
+                    }
+                });
+                console.log('Upload button listener attached');
+            } else {
+                console.error('Upload button not found');
+            }
+
+            if (audioFileInput) {
+                audioFileInput.addEventListener('change', async (event) => {
+                    console.log('File input changed, files:', event.target.files.length);
+                    const file = event.target.files[0];
+                    if (file) {
+                        try {
+                            // Stop current audio
+                            if (audioElement) {
+                                audioElement.pause();
+                                audioElement.currentTime = 0;
+                            }
+
+                            // Create object URL for the file
+                            const fileURL = URL.createObjectURL(file);
+
+                            // Load new audio file
+                            await setupAudio(fileURL);
+
+                            // Update controls
+                            updateAudioControls();
+
+                            console.log('Loaded new audio file:', file.name);
+
+                            // Play the newly loaded audio automatically
+                            // if (audioElement) {
+                            //     await audioElement.play().catch(e => {
+                            //         console.error('Auto-play failed after file load:', e);
+                            //     });
+                            // }
+                        } catch (error) {
+                            console.error('Error loading audio file:', error);
+                            alert('Error loading audio file: ' + error.message);
+                        }
+                    }
+                });
+            }
+
+            // Setup audio control event listeners
+            const audioPlayPauseBtn = document.getElementById('playPauseBtn');
+            const audioSeekSlider = document.getElementById('seekSlider');
+            const audioVolumeSlider = document.getElementById('volumeSlider');
+
+            if (audioPlayPauseBtn) {
+                audioPlayPauseBtn.addEventListener('click', playAudio);
+                console.log('Play/pause button listener attached');
+            } else {
+                console.error('Play/pause button not found');
+            }
+
+            if (audioSeekSlider) {
+                audioSeekSlider.addEventListener('input', (e) => seekAudio(parseFloat(e.target.value) / 100));
+                console.log('Seek slider listener attached');
+            } else {
+                console.error('Seek slider not found');
+            }
+
+            if (audioVolumeSlider) {
+                audioVolumeSlider.addEventListener('input', (e) => setVolume(parseFloat(e.target.value)));
+                console.log('Volume slider listener attached');
+            } else {
+                console.error('Volume slider not found');
+            }
+
+            // Audio element event listeners
+            if (audioElement) {
+                audioElement.addEventListener('loadedmetadata', () => {
+                    console.log('Audio loaded, duration:', audioElement.duration);
+                    updateAudioControls();
+                });
+                audioElement.addEventListener('timeupdate', updateAudioControls);
+                audioElement.addEventListener('play', () => {
+                    console.log('Audio started playing');
+                    updateAudioControls();
+                });
+                audioElement.addEventListener('pause', () => {
+                    console.log('Audio paused');
+                    updateAudioControls();
+                });
+                audioElement.addEventListener('volumechange', () => {
+                    console.log('Volume changed to:', audioElement.volume);
+                    updateAudioControls();
+                });
+                audioElement.addEventListener('error', (e) => {
+                    console.error('Audio error:', e);
+                });
+                console.log('Audio element event listeners attached');
+            } else {
+                console.error('Audio element not found for event listeners');
+            }
+
+            // Initialize controls
+            console.log('Initializing audio controls...');
+            updateAudioControls();
+
+            // Set initial volume
+            if (audioElement) {
+                console.log('Setting initial volume for audio element');
+                setVolume(audioElement.volume);
+            } else {
+                console.error('Audio element not available for initialization');
+            }
+                async function playAudio() {
+                    if (!audioElement) {
+                        console.error('Audio element not found');
+                        return;
+                    }
+
+                    console.log('Play/pause clicked, current state:', audioElement.paused ? 'paused' : 'playing');
+
+                    try {
+                        // Resume Web Audio context if needed
+                        if (audioContext && audioContext.state === 'suspended') {
+                            await audioContext.resume();
+                            console.log('Web Audio context resumed');
+                        }
+
+                        if (audioElement.paused) {
+                            await audioElement.play();
+                            console.log('Audio started playing');
+                        } else {
+                            audioElement.pause();
+                            console.log('Audio paused');
+                        }
+                    } catch (e) {
+                        console.error('Audio control failed:', e);
+                    }
+                }
+
+                function seekAudio(position) {
+                    if (!audioElement) {
+                        console.error('Audio element not found');
+                        return;
+                    }
+                    if (!isNaN(audioElement.duration) && audioElement.duration > 0) {
+                        const newTime = position * audioElement.duration;
+                        audioElement.currentTime = newTime;
+                        console.log('Seeked to:', newTime, 'of', audioElement.duration);
+                    } else {
+                        console.warn('Cannot seek: invalid duration');
+                    }
+                }
+
+            function setVolume(volume) {
+                if (audioElement) {
+                    audioElement.volume = volume;
+                    console.log('Volume set to:', volume);
+                }
+                // Also update the volume slider to reflect current volume
+                const audioVolumeSlider = document.getElementById('volumeSlider');
+                if (audioVolumeSlider) {
+                    audioVolumeSlider.value = volume;
+                }
+            }
+
+                function updateAudioControls() {
+                    if (!audioElement) return;
+
+                    const playPauseBtn = document.getElementById('playPauseBtn');
+                    const seekSlider = document.getElementById('seekSlider');
+                    const currentTimeSpan = document.getElementById('currentTime');
+                    const durationSpan = document.getElementById('duration');
+                    const volumeSlider = document.getElementById('volumeSlider');
+
+                    // Update play/pause button
+                    playPauseBtn.textContent = audioElement.paused ? '▶️ Play' : '⏸️ Pause';
+
+                    // Update duration
+                    if (!isNaN(audioElement.duration)) {
+                        durationSpan.textContent = formatTime(audioElement.duration);
+                    }
+
+                    // Update current time and seek slider
+                    if (!isNaN(audioElement.duration) && audioElement.duration > 0) {
+                        currentTimeSpan.textContent = formatTime(audioElement.currentTime);
+                        seekSlider.value = (audioElement.currentTime / audioElement.duration) * 100;
+                    }
+
+                // Update volume slider
+                if (audioVolumeSlider) {
+                    audioVolumeSlider.value = audioElement.volume;
+                }
+                }
+
+                function formatTime(seconds) {
+                    if (isNaN(seconds)) return '0:00';
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return `${mins}:${secs.toString().padStart(2, '0')}`;
+                }
+
+                // Setup audio control event listeners
+                const playPauseBtn = document.getElementById('playPauseBtn');
+                const seekSlider = document.getElementById('seekSlider');
+                const volumeSlider = document.getElementById('volumeSlider');
+
+                if (playPauseBtn) {
+                    playPauseBtn.addEventListener('click', playAudio);
+                    console.log('Play/pause button listener attached');
+                } else {
+                    console.error('Play/pause button not found');
+                }
+
+                if (seekSlider) {
+                    seekSlider.addEventListener('input', (e) => seekAudio(parseFloat(e.target.value) / 100));
+                    console.log('Seek slider listener attached');
+                } else {
+                    console.error('Seek slider not found');
+                }
+
+                if (volumeSlider) {
+                    volumeSlider.addEventListener('input', (e) => setVolume(parseFloat(e.target.value)));
+                    console.log('Volume slider listener attached');
+                } else {
+                    console.error('Volume slider not found');
+                }
+
+                // Audio element event listeners
+                if (audioElement) {
+                    audioElement.addEventListener('loadedmetadata', () => {
+                        console.log('Audio loaded, duration:', audioElement.duration);
+                        updateAudioControls();
+                    });
+                    audioElement.addEventListener('timeupdate', updateAudioControls);
+                    audioElement.addEventListener('play', () => {
+                        console.log('Audio started playing');
+                        updateAudioControls();
+                    });
+                    audioElement.addEventListener('pause', () => {
+                        console.log('Audio paused');
+                        updateAudioControls();
+                    });
+                    audioElement.addEventListener('volumechange', () => {
+                        console.log('Volume changed to:', audioElement.volume);
+                        updateAudioControls();
+                    });
+                    audioElement.addEventListener('error', (e) => {
+                        console.error('Audio error:', e);
+                    });
+                    console.log('Audio element event listeners attached');
+                } else {
+                    console.error('Audio element not found for event listeners');
+                }
+
+                // Initialize controls
+                console.log('Initializing audio controls...');
+                updateAudioControls();
+
+                // Set initial volume
+                if (audioElement) {
+                    console.log('Setting initial volume for audio element');
+                    setVolume(audioElement.volume);
+                } else {
+                    console.error('Audio element not available for initialization');
+                }
+            }
+
+            (async () => {
+                // Wait for DOM to be ready
+                if (document.readyState === 'loading') {
+                    await new Promise(resolve => {
+                        document.addEventListener('DOMContentLoaded', resolve);
+                    });
+                }
+
+                // Setup audio first
+                await setupAudio();
+
+                await init();
+
+                // Call setup after everything is initialized
+                setupImGuiControls();
+
+                setupAudioStuff();
+            })();
     </script>
 </body>
+
 </html>
