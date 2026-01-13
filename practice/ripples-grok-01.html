@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fluid Simulation with Compute Shaders</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script type="module">
+        // WebGPU Fluid Simulation with Compute Shaders
+        // Features: Advection, Vorticity, Mouse Forces, Colorful Algae-like Visualization
+
+        const canvas = document.getElementById('canvas');
+        const devicePixelRatio = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * devicePixelRatio;
+        canvas.height = window.innerHeight * devicePixelRatio;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+
+        const SIM_RESOLUTION = 512;
+        const DYE_RESOLUTION = 1024;
+        const DENSITY_DISSIPATION = 1.0;
+        const VELOCITY_DISSIPATION = 0.2;
+        const PRESSURE_ITERATIONS = 20;
+        const SPLAT_FORCE = 600.0;
+
+        // Mouse state
+        let mousePos = { x: 0.5, y: 0.5 };
+        let mouseVel = { x: 0, y: 0 };
+        let lastMousePos = { x: 0.5, y: 0.5 };
+        let mousePressed = false;
+
+        // WebGPU setup
+        async function initWebGPU() {
+            if (!navigator.gpu) {
+                throw new Error('WebGPU not supported');
+            }
+
+            const adapter = await navigator.gpu.requestAdapter();
+            const device = await adapter.requestDevice();
+
+            const context = canvas.getContext('webgpu');
+            const format = navigator.gpu.getPreferredCanvasFormat();
+
+            context.configure({
+                device,
+                format,
+                alphaMode: 'premultiplied',
+            });
+
+            return { device, context, format };
+        }
+
+        // Create texture
+        function createTexture(device, size, format, usage) {
+            return device.createTexture({
+                size: [size, size],
+                format,
+                usage,
+            });
+        }
+
+        // Create buffer
+        function createBuffer(device, size, usage) {
+            return device.createBuffer({
+                size,
+                usage,
+            });
+        }
+
+        // Shaders
+        const advectionShader = `
+            @group(0) @binding(0) var velocityTexture: texture_2d<f32>;
+            @group(0) @binding(1) var sourceTexture: texture_2d<f32>;
+            @group(0) @binding(2) var samplerNearest: sampler;
+
+            @fragment
+            fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+                let dt = 0.016;
+                let dissipation = 0.98;
+
+                let vel = textureSample(velocityTexture, samplerNearest, uv).xy;
+                let coord = uv - vel * dt * 0.1;
+
+                let result = textureSample(sourceTexture, samplerNearest, coord);
+                return result * dissipation;
+            }
+        `;
+
+        const divergenceShader = `
+            @group(0) @binding(0) var velocityTexture: texture_2d<f32>;
+            @group(0) @binding(1) var samplerNearest: sampler;
+
+            @fragment
+            fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+                let L = textureSample(velocityTexture, samplerNearest, uv + vec2<f32>(-1.0/${SIM_RESOLUTION}.0, 0.0)).x;
+                let R = textureSample(velocityTexture, samplerNearest, uv + vec2<f32>(1.0/${SIM_RESOLUTION}.0, 0.0)).x;
+                let T = textureSample(velocityTexture, samplerNearest, uv + vec2<f32>(0.0, -1.0/${SIM_RESOLUTION}.0)).y;
+                let B = textureSample(velocityTexture, samplerNearest, uv + vec2<f32>(0.0, 1.0/${SIM_RESOLUTION}.0)).y;
+
+                let div = 0.5 * (R - L + B - T);
+                return vec4<f32>(div, 0.0, 0.0, 1.0);
+            }
+        `;
+
+        const pressureShader = `
+            @group(0) @binding(0) var pressureTexture: texture_2d<f32>;
+            @group(0) @binding(1) var divergenceTexture: texture_2d<f32>;
+            @group(0) @binding(2) var samplerNearest: sampler;
+
+            @fragment
+            fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+                let L = textureSample(pressureTexture, samplerNearest, uv + vec2<f32>(-1.0/${SIM_RESOLUTION}.0, 0.0)).x;
+                let R = textureSample(pressureTexture, samplerNearest, uv + vec2<f32>(1.0/${SIM_RESOLUTION}.0, 0.0)).x;
+                let T = textureSample(pressureTexture, samplerNearest, uv + vec2<f32>(0.0, -1.0/${SIM_RESOLUTION}.0)).x;
+                let B = textureSample(pressureTexture, samplerNearest, uv + vec2<f32>(0.0, 1.0/${SIM_RESOLUTION}.0)).x;
+                let C = textureSample(divergenceTexture, samplerNearest, uv).x;
+
+                let pressure = (L + R + B + T - C) * 0.25;
+                return vec4<f32>(pressure, 0.0, 0.0, 1.0);
+            }
+        `;
+
+        const gradientSubtractShader = `
+            @group(0) @binding(0) var pressureTexture: texture_2d<f32>;
+            @group(0) @binding(1) var velocityTexture: texture_2d<f32>;
+            @group(0) @binding(2) var samplerNearest: sampler;
+
+            @fragment
+            fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+                let L = textureSample(pressureTexture, samplerNearest, uv + vec2<f32>(-1.0/${SIM_RESOLUTION}.0, 0.0)).x;
+                let R = textureSample(pressureTexture, samplerNearest, uv + vec2<f32>(1.0/${SIM_RESOLUTION}.0, 0.0)).x;
+                let T = textureSample(pressureTexture, samplerNearest, uv + vec2<f32>(0.0, -1.0/${SIM_RESOLUTION}.0)).x;
+                let B = textureSample(pressureTexture, samplerNearest, uv + vec2<f32>(0.0, 1.0/${SIM_RESOLUTION}.0)).x;
+
+                let vel = textureSample(velocityTexture, samplerNearest, uv).xy;
+                let grad = vec2<f32>(R - L, B - T) * 0.5;
+
+                return vec4<f32>(vel - grad, 0.0, 1.0);
+            }
+        `;
+
+        const vorticityShader = `
+            @group(0) @binding(0) var velocityTexture: texture_2d<f32>;
+            @group(0) @binding(1) var samplerNearest: sampler;
+
+            @fragment
+            fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+                let L = textureSample(velocityTexture, samplerNearest, uv + vec2<f32>(-1.0/${SIM_RESOLUTION}.0, 0.0)).y;
+                let R = textureSample(velocityTexture, samplerNearest, uv + vec2<f32>(1.0/${SIM_RESOLUTION}.0, 0.0)).y;
+                let T = textureSample(velocityTexture, samplerNearest, uv + vec2<f32>(0.0, -1.0/${SIM_RESOLUTION}.0)).x;
+                let B = textureSample(velocityTexture, samplerNearest, uv + vec2<f32>(0.0, 1.0/${SIM_RESOLUTION}.0)).x;
+
+                let vorticity = (R - L - B + T) * 0.5;
+                return vec4<f32>(vorticity, 0.0, 0.0, 1.0);
+            }
+        `;
+
+        const vorticityConfinementShader = `
+            @group(0) @binding(0) var vorticityTexture: texture_2d<f32>;
+            @group(0) @binding(1) var velocityTexture: texture_2d<f32>;
+            @group(0) @binding(2) var samplerNearest: sampler;
+
+            @fragment
+            fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+                let L = textureSample(vorticityTexture, samplerNearest, uv + vec2<f32>(-1.0/${SIM_RESOLUTION}.0, 0.0)).x;
+                let R = textureSample(vorticityTexture, samplerNearest, uv + vec2<f32>(1.0/${SIM_RESOLUTION}.0, 0.0)).x;
+                let T = textureSample(vorticityTexture, samplerNearest, uv + vec2<f32>(0.0, -1.0/${SIM_RESOLUTION}.0)).x;
+                let B = textureSample(vorticityTexture, samplerNearest, uv + vec2<f32>(0.0, 1.0/${SIM_RESOLUTION}.0)).x;
+                let C = textureSample(vorticityTexture, samplerNearest, uv).x;
+
+                var force = 0.0005 * vec2<f32>(abs(T) - abs(B), abs(L) - abs(R));
+                let len = length(force) + 0.000001;
+                force = force / len;
+                force = force * C;
+
+                let vel = textureSample(velocityTexture, samplerNearest, uv).xy;
+                return vec4<f32>(vel + force * 0.016, 0.0, 1.0);
+            }
+        `;
+
+        const splatShader = `
+            struct SplatData {
+                position: vec2<f32>,
+                velocity: vec2<f32>,
+                color: vec3<f32>,
+                radius: f32,
+            }
+
+            @group(0) @binding(0) var texture: texture_2d<f32>;
+            @group(0) @binding(1) var samplerNearest: sampler;
+            @group(0) @binding(2) var<uniform> splatData: SplatData;
+
+            @fragment
+            fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+                let aspectRatio = ${canvas.width}.0 / ${canvas.height}.0;
+                var p = uv - splatData.position;
+                p.x *= aspectRatio;
+
+                let splat = exp(-dot(p, p) / splatData.radius) * vec3<f32>(splatData.velocity.x, splatData.velocity.y, 1.0);
+                let base = textureSample(texture, samplerNearest, uv);
+
+                return base + vec4<f32>(splat, 1.0);
+            }
+        `;
+
+        const displayShader = `
+            @group(0) @binding(0) var velocityTexture: texture_2d<f32>;
+            @group(0) @binding(1) var densityTexture: texture_2d<f32>;
+            @group(0) @binding(2) var samplerNearest: sampler;
+
+            @fragment
+            fn fs(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+                let vel = textureSample(velocityTexture, samplerNearest, uv).xy;
+                let density = textureSample(densityTexture, samplerNearest, uv);
+
+                let speed = length(vel);
+                let intensity = min(speed * 2.0, 1.0);
+
+                // Colorful algae-like effect
+                let hue = atan2(vel.y, vel.x) / (2.0 * 3.14159) + 0.5;
+                let saturation = intensity;
+                let value = intensity * 0.8 + density.r * 0.2;
+
+                // HSV to RGB conversion
+                let c = value * saturation;
+                let x = c * (1.0 - abs((hue * 6.0) % 2.0 - 1.0));
+                let m = value - c;
+
+                var rgb: vec3<f32>;
+                if (hue < 1.0/6.0) {
+                    rgb = vec3<f32>(c, x, 0.0);
+                } else if (hue < 2.0/6.0) {
+                    rgb = vec3<f32>(x, c, 0.0);
+                } else if (hue < 3.0/6.0) {
+                    rgb = vec3<f32>(0.0, c, x);
+                } else if (hue < 4.0/6.0) {
+                    rgb = vec3<f32>(0.0, x, c);
+                } else if (hue < 5.0/6.0) {
+                    rgb = vec3<f32>(x, 0.0, c);
+                } else {
+                    rgb = vec3<f32>(c, 0.0, x);
+                }
+
+                rgb += m;
+
+                // Fade to black
+                let fade = exp(-speed * 0.5);
+                rgb *= fade;
+
+                return vec4<f32>(rgb, 1.0);
+            }
+        `;
+
+        async function createShaderModule(device, code) {
+            return device.createShaderModule({
+                code,
+            });
+        }
+
+        function createBindGroup(device, layout, entries) {
+            return device.createBindGroup({
+                layout,
+                entries,
+            });
+        }
+
+        async function main() {
+            const { device, context, format } = await initWebGPU();
+
+            // Create textures
+            const velocityTextures = [
+                createTexture(device, SIM_RESOLUTION, 'rgba32float', GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT),
+                createTexture(device, SIM_RESOLUTION, 'rgba32float', GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT),
+            ];
+
+            const densityTextures = [
+                createTexture(device, DYE_RESOLUTION, 'rgba32float', GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT),
+                createTexture(device, DYE_RESOLUTION, 'rgba32float', GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT),
+            ];
+
+            const pressureTextures = [
+                createTexture(device, SIM_RESOLUTION, 'rgba32float', GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT),
+                createTexture(device, SIM_RESOLUTION, 'rgba32float', GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT),
+            ];
+
+            const divergenceTexture = createTexture(device, SIM_RESOLUTION, 'rgba32float', GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT);
+            const vorticityTexture = createTexture(device, SIM_RESOLUTION, 'rgba32float', GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT);
+
+            // Samplers
+            const samplerNearest = device.createSampler({
+                magFilter: 'nearest',
+                minFilter: 'nearest',
+            });
+
+            const samplerLinear = device.createSampler({
+                magFilter: 'linear',
+                minFilter: 'linear',
+            });
+
+            // Create shader modules
+            const advectionModule = await createShaderModule(device, advectionShader);
+            const divergenceModule = await createShaderModule(device, divergenceShader);
+            const pressureModule = await createShaderModule(device, pressureShader);
+            const gradientSubtractModule = await createShaderModule(device, gradientSubtractShader);
+            const vorticityModule = await createShaderModule(device, vorticityShader);
+            const vorticityConfinementModule = await createShaderModule(device, vorticityConfinementShader);
+            const splatModule = await createShaderModule(device, splatShader);
+            const displayModule = await createShaderModule(device, displayShader);
+
+            // Create pipeline layouts
+            const advectionLayout = device.createBindGroupLayout({
+                entries: [
+                    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'non-filtering' } },
+                ],
+            });
+
+            const divergenceLayout = device.createBindGroupLayout({
+                entries: [
+                    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'non-filtering' } },
+                ],
+            });
+
+            const vorticityLayout = device.createBindGroupLayout({
+                entries: [
+                    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'non-filtering' } },
+                ],
+            });
+
+            const pressureLayout = device.createBindGroupLayout({
+                entries: [
+                    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'non-filtering' } },
+                ],
+            });
+
+            const gradientSubtractLayout = device.createBindGroupLayout({
+                entries: [
+                    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'non-filtering' } },
+                ],
+            });
+
+            const vorticityConfinementLayout = device.createBindGroupLayout({
+                entries: [
+                    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'non-filtering' } },
+                ],
+            });
+
+            const splatLayout = device.createBindGroupLayout({
+                entries: [
+                    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'non-filtering' } },
+                    { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+                ],
+            });
+
+            const displayLayout = device.createBindGroupLayout({
+                entries: [
+                    { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'unfilterable-float' } },
+                    { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'non-filtering' } },
+                ],
+            });
+
+            // Create pipelines
+            const vertexShader = device.createShaderModule({
+                code: `
+                    struct VertexOutput {
+                        @builtin(position) position: vec4<f32>,
+                        @location(0) uv: vec2<f32>,
+                    }
+
+                    @vertex
+                    fn vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+                        let positions = array<vec2<f32>, 4>(
+                            vec2<f32>(-1.0, -1.0),
+                            vec2<f32>(1.0, -1.0),
+                            vec2<f32>(-1.0, 1.0),
+                            vec2<f32>(1.0, 1.0)
+                        );
+                        let uvs = array<vec2<f32>, 4>(
+                            vec2<f32>(0.0, 0.0),
+                            vec2<f32>(1.0, 0.0),
+                            vec2<f32>(0.0, 1.0),
+                            vec2<f32>(1.0, 1.0)
+                        );
+
+                        var output: VertexOutput;
+                        output.position = vec4<f32>(positions[vertexIndex], 0.0, 1.0);
+                        output.uv = uvs[vertexIndex];
+                        return output;
+                    }
+                `
+            });
+
+            const advectionPipeline = device.createRenderPipeline({
+                layout: device.createPipelineLayout({ bindGroupLayouts: [advectionLayout] }),
+                vertex: { module: vertexShader, entryPoint: 'vs' },
+                fragment: { module: advectionModule, entryPoint: 'fs', targets: [{ format: 'rgba32float' }] },
+                primitive: { topology: 'triangle-strip' },
+            });
+
+            const divergencePipeline = device.createRenderPipeline({
+                layout: device.createPipelineLayout({ bindGroupLayouts: [divergenceLayout] }),
+                vertex: { module: vertexShader, entryPoint: 'vs' },
+                fragment: { module: divergenceModule, entryPoint: 'fs', targets: [{ format: 'rgba32float' }] },
+                primitive: { topology: 'triangle-strip' },
+            });
+
+            const pressurePipeline = device.createRenderPipeline({
+                layout: device.createPipelineLayout({ bindGroupLayouts: [pressureLayout] }),
+                vertex: { module: vertexShader, entryPoint: 'vs' },
+                fragment: { module: pressureModule, entryPoint: 'fs', targets: [{ format: 'rgba32float' }] },
+                primitive: { topology: 'triangle-strip' },
+            });
+
+            const gradientSubtractPipeline = device.createRenderPipeline({
+                layout: device.createPipelineLayout({ bindGroupLayouts: [gradientSubtractLayout] }),
+                vertex: { module: vertexShader, entryPoint: 'vs' },
+                fragment: { module: gradientSubtractModule, entryPoint: 'fs', targets: [{ format: 'rgba32float' }] },
+                primitive: { topology: 'triangle-strip' },
+            });
+
+            const vorticityPipeline = device.createRenderPipeline({
+                layout: device.createPipelineLayout({ bindGroupLayouts: [vorticityLayout] }),
+                vertex: { module: vertexShader, entryPoint: 'vs' },
+                fragment: { module: vorticityModule, entryPoint: 'fs', targets: [{ format: 'rgba32float' }] },
+                primitive: { topology: 'triangle-strip' },
+            });
+
+            const vorticityConfinementPipeline = device.createRenderPipeline({
+                layout: device.createPipelineLayout({ bindGroupLayouts: [vorticityConfinementLayout] }),
+                vertex: { module: vertexShader, entryPoint: 'vs' },
+                fragment: { module: vorticityConfinementModule, entryPoint: 'fs', targets: [{ format: 'rgba32float' }] },
+                primitive: { topology: 'triangle-strip' },
+            });
+
+            const splatPipeline = device.createRenderPipeline({
+                layout: device.createPipelineLayout({ bindGroupLayouts: [splatLayout] }),
+                vertex: { module: vertexShader, entryPoint: 'vs' },
+                fragment: { module: splatModule, entryPoint: 'fs', targets: [{ format: 'rgba32float' }] },
+                primitive: { topology: 'triangle-strip' },
+            });
+
+            const displayPipeline = device.createRenderPipeline({
+                layout: device.createPipelineLayout({ bindGroupLayouts: [displayLayout] }),
+                vertex: { module: vertexShader, entryPoint: 'vs' },
+                fragment: { module: displayModule, entryPoint: 'fs', targets: [{ format }] },
+                primitive: { topology: 'triangle-strip' },
+            });
+
+
+            // Splat uniform buffer
+            const splatBuffer = device.createBuffer({
+                size: 32, // 8 floats * 4 bytes
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+
+            // Mouse event handlers
+            canvas.addEventListener('mousedown', () => { mousePressed = true; });
+            canvas.addEventListener('mouseup', () => { mousePressed = false; });
+            canvas.addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                mousePos.x = (e.clientX - rect.left) / rect.width;
+                mousePos.y = 1.0 - (e.clientY - rect.top) / rect.height;
+            });
+
+            function render() {
+                // Update mouse velocity
+                mouseVel.x = mousePos.x - lastMousePos.x;
+                mouseVel.y = mousePos.y - lastMousePos.y;
+                lastMousePos.x = mousePos.x;
+                lastMousePos.y = mousePos.y;
+
+                const commandEncoder = device.createCommandEncoder();
+
+                // Advection step for velocity
+                let advectionBindGroup = createBindGroup(device, advectionLayout, [
+                    { binding: 0, resource: velocityTextures[0].createView() },
+                    { binding: 1, resource: velocityTextures[0].createView() },
+                    { binding: 2, resource: samplerNearest },
+                ]);
+
+                const advectionPass = commandEncoder.beginRenderPass({
+                    colorAttachments: [{
+                        view: velocityTextures[1].createView(),
+                        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    }],
+                });
+                advectionPass.setPipeline(advectionPipeline);
+                advectionPass.setBindGroup(0, advectionBindGroup);
+                advectionPass.draw(4);
+                advectionPass.end();
+
+                // Vorticity
+                const vorticityBindGroup = createBindGroup(device, vorticityLayout, [
+                    { binding: 0, resource: velocityTextures[1].createView() },
+                    { binding: 1, resource: samplerNearest },
+                ]);
+
+                const vorticityPass = commandEncoder.beginRenderPass({
+                    colorAttachments: [{
+                        view: vorticityTexture.createView(),
+                        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    }],
+                });
+                vorticityPass.setPipeline(vorticityPipeline);
+                vorticityPass.setBindGroup(0, vorticityBindGroup);
+                vorticityPass.draw(4);
+                vorticityPass.end();
+
+                const vorticityConfinementBindGroup = createBindGroup(device, vorticityConfinementLayout, [
+                    { binding: 0, resource: vorticityTexture.createView() },
+                    { binding: 1, resource: velocityTextures[1].createView() },
+                    { binding: 2, resource: samplerNearest },
+                ]);
+
+                const vorticityConfinementPass = commandEncoder.beginRenderPass({
+                    colorAttachments: [{
+                        view: velocityTextures[0].createView(),
+                        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    }],
+                });
+                vorticityConfinementPass.setPipeline(vorticityConfinementPipeline);
+                vorticityConfinementPass.setBindGroup(0, vorticityConfinementBindGroup);
+                vorticityConfinementPass.draw(4);
+                vorticityConfinementPass.end();
+
+                // Add mouse forces
+                if (mousePressed && (Math.abs(mouseVel.x) > 0.001 || Math.abs(mouseVel.y) > 0.001)) {
+                    const splatData = new Float32Array([
+                        mousePos.x, mousePos.y,
+                        mouseVel.x * SPLAT_FORCE, mouseVel.y * SPLAT_FORCE,
+                        1.0, 1.0, 1.0, // color
+                        0.01, // radius
+                    ]);
+
+                    device.queue.writeBuffer(splatBuffer, 0, splatData);
+
+                    const splatBindGroup = createBindGroup(device, splatLayout, [
+                        { binding: 0, resource: velocityTextures[0].createView() },
+                        { binding: 1, resource: samplerNearest },
+                        { binding: 2, resource: { buffer: splatBuffer } },
+                    ]);
+
+                    const splatPass = commandEncoder.beginRenderPass({
+                        colorAttachments: [{
+                            view: velocityTextures[1].createView(),
+                            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                            loadOp: 'load',
+                            storeOp: 'store',
+                        }],
+                    });
+                    splatPass.setPipeline(splatPipeline);
+                    splatPass.setBindGroup(0, splatBindGroup);
+                    splatPass.draw(4);
+                    splatPass.end();
+
+                    // Swap
+                    [velocityTextures[0], velocityTextures[1]] = [velocityTextures[1], velocityTextures[0]];
+                }
+
+                // Divergence
+                const divergenceBindGroup = createBindGroup(device, divergenceLayout, [
+                    { binding: 0, resource: velocityTextures[0].createView() },
+                    { binding: 1, resource: samplerNearest },
+                ]);
+
+                const divergencePass = commandEncoder.beginRenderPass({
+                    colorAttachments: [{
+                        view: divergenceTexture.createView(),
+                        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    }],
+                });
+                divergencePass.setPipeline(divergencePipeline);
+                divergencePass.setBindGroup(0, divergenceBindGroup);
+                divergencePass.draw(4);
+                divergencePass.end();
+
+                // Pressure solve
+                let pressureBindGroup = createBindGroup(device, pressureLayout, [
+                    { binding: 0, resource: pressureTextures[0].createView() },
+                    { binding: 1, resource: divergenceTexture.createView() },
+                    { binding: 2, resource: samplerNearest },
+                ]);
+
+                for (let i = 0; i < PRESSURE_ITERATIONS; i++) {
+                    const pressurePass = commandEncoder.beginRenderPass({
+                        colorAttachments: [{
+                            view: pressureTextures[1].createView(),
+                            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                            loadOp: 'clear',
+                            storeOp: 'store',
+                        }],
+                    });
+                    pressurePass.setPipeline(pressurePipeline);
+                    pressurePass.setBindGroup(0, pressureBindGroup);
+                    pressurePass.draw(4);
+                    pressurePass.end();
+
+                    // Swap
+                    [pressureTextures[0], pressureTextures[1]] = [pressureTextures[1], pressureTextures[0]];
+                    pressureBindGroup = createBindGroup(device, pressureLayout, [
+                        { binding: 0, resource: pressureTextures[0].createView() },
+                        { binding: 1, resource: divergenceTexture.createView() },
+                        { binding: 2, resource: samplerNearest },
+                    ]);
+                }
+
+                // Gradient subtract
+                const gradientBindGroup = createBindGroup(device, gradientSubtractLayout, [
+                    { binding: 0, resource: pressureTextures[0].createView() },
+                    { binding: 1, resource: velocityTextures[0].createView() },
+                    { binding: 2, resource: samplerNearest },
+                ]);
+
+                const gradientPass = commandEncoder.beginRenderPass({
+                    colorAttachments: [{
+                        view: velocityTextures[1].createView(),
+                        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    }],
+                });
+                gradientPass.setPipeline(gradientSubtractPipeline);
+                gradientPass.setBindGroup(0, gradientBindGroup);
+                gradientPass.draw(4);
+                gradientPass.end();
+
+                // Swap
+                [velocityTextures[0], velocityTextures[1]] = [velocityTextures[1], velocityTextures[0]];
+
+                // Advection for density
+                const densityAdvectionBindGroup = createBindGroup(device, advectionLayout, [
+                    { binding: 0, resource: velocityTextures[0].createView() },
+                    { binding: 1, resource: densityTextures[0].createView() },
+                    { binding: 2, resource: samplerNearest },
+                ]);
+
+                const densityAdvectionPass = commandEncoder.beginRenderPass({
+                    colorAttachments: [{
+                        view: densityTextures[1].createView(),
+                        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    }],
+                });
+                densityAdvectionPass.setPipeline(advectionPipeline);
+                densityAdvectionPass.setBindGroup(0, densityAdvectionBindGroup);
+                densityAdvectionPass.draw(4);
+                densityAdvectionPass.end();
+
+                // Swap density
+                [densityTextures[0], densityTextures[1]] = [densityTextures[1], densityTextures[0]];
+
+                // Add density splat if mouse pressed
+                if (mousePressed && (Math.abs(mouseVel.x) > 0.001 || Math.abs(mouseVel.y) > 0.001)) {
+                    const densitySplatData = new Float32Array([
+                        mousePos.x, mousePos.y,
+                        mouseVel.x * SPLAT_FORCE * 0.5, mouseVel.y * SPLAT_FORCE * 0.5,
+                        Math.random(), Math.random(), Math.random(), // random color
+                        0.005, // radius
+                    ]);
+
+                    device.queue.writeBuffer(splatBuffer, 0, densitySplatData);
+
+                    const densitySplatBindGroup = createBindGroup(device, splatLayout, [
+                        { binding: 0, resource: densityTextures[0].createView() },
+                        { binding: 1, resource: samplerNearest },
+                        { binding: 2, resource: { buffer: splatBuffer } },
+                    ]);
+
+                    const densitySplatPass = commandEncoder.beginRenderPass({
+                        colorAttachments: [{
+                            view: densityTextures[1].createView(),
+                            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                            loadOp: 'load',
+                            storeOp: 'store',
+                        }],
+                    });
+                    densitySplatPass.setPipeline(splatPipeline);
+                    densitySplatPass.setBindGroup(0, densitySplatBindGroup);
+                    densitySplatPass.draw(4);
+                    densitySplatPass.end();
+
+                    // Swap
+                    [densityTextures[0], densityTextures[1]] = [densityTextures[1], densityTextures[0]];
+                }
+
+                // Display
+                const displayBindGroup = createBindGroup(device, displayLayout, [
+                    { binding: 0, resource: velocityTextures[0].createView() },
+                    { binding: 1, resource: densityTextures[0].createView() },
+                    { binding: 2, resource: samplerNearest },
+                ]);
+
+                const displayPass = commandEncoder.beginRenderPass({
+                    colorAttachments: [{
+                        view: context.getCurrentTexture().createView(),
+                        clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    }],
+                });
+                displayPass.setPipeline(displayPipeline);
+                displayPass.setBindGroup(0, displayBindGroup);
+                displayPass.draw(4);
+                displayPass.end();
+
+                device.queue.submit([commandEncoder.finish()]);
+                requestAnimationFrame(render);
+            }
+
+            render();
+        }
+
+        main().catch(console.error);
+    </script>
+</body>
+</html>

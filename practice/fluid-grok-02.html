@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Fluid Simulation Demo with Advection, Vorticity, Mouse Forces, and Colorful Algae-like Visualization</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: black; }
+        #hint {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 5px;
+            transition: opacity 0.5s;
+        }
+        #hint.hidden {
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="hint">Click and drag with mouse or finger to interact</div>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.umd.js"></script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+
+        const vertexShader = `
+            precision mediump float;
+            varying vec2 vUv;
+            varying vec2 vL;
+            varying vec2 vR;
+            varying vec2 vT;
+            varying vec2 vB;
+            uniform vec2 texelSize;
+
+            void main() {
+                vUv = uv;
+                vL = uv - vec2(texelSize.x, 0.0);
+                vR = uv + vec2(texelSize.x, 0.0);
+                vT = uv + vec2(0.0, texelSize.y);
+                vB = uv - vec2(0.0, texelSize.y);
+                gl_Position = vec4(position, 1.0);
+            }
+        `;
+
+        class SplatShader extends THREE.ShaderMaterial {
+            constructor(texelSize, aspectRatio, params) {
+                super({
+                    uniforms: {
+                        uTarget: { value: null },
+                        splatVelocity: { value: false },
+                        texelSize: { value: texelSize },
+                        aspectRatio: { value: aspectRatio },
+                        splatForce: { value: params.splatForce },
+                        uMouseCurrent: { value: new THREE.Vector2() },
+                        uMousePrev: { value: new THREE.Vector2() },
+                        uMouseColor: { value: new THREE.Color() },
+                        uMouseRatio: { value: params.mouseRatio },
+                        uMouseDown: { value: false }
+                    },
+                    vertexShader,
+                    fragmentShader: `
+                        precision mediump float;
+                        varying highp vec2 vUv;
+                        uniform sampler2D uTarget;
+                        uniform float aspectRatio;
+                        uniform vec2 texelSize;
+                        uniform bool splatVelocity;
+                        uniform vec3 uMouseColor;
+                        uniform vec2 uMouseCurrent;
+                        uniform vec2 uMousePrev;
+                        uniform float uMouseRatio;
+                        uniform float splatForce;
+                        uniform bool uMouseDown;
+
+                        void main () {
+                            vec4 pixel = texture2D(uTarget, vUv);
+                            if (uMouseDown) {
+                                vec2 curr = uMouseCurrent;
+                                vec2 prev = uMousePrev;
+                                float ratio = uMouseRatio;
+                                vec2 diff = curr - prev;
+                                if (length(diff) > 0.0) {
+                                    vec2 toFrag = vUv - prev;
+                                    float t = clamp(dot(toFrag, diff) / dot(diff, diff), 0.0, 1.0);
+                                    vec2 proj = prev + t * diff;
+                                    vec2 aspect = vec2(aspectRatio, 1.0);
+                                    float d = distance(vUv * aspect, proj * aspect);
+                                    if (d < ratio) {
+                                        float influence = smoothstep(ratio, 0.0, d);
+                                        if (splatVelocity) {
+                                            vec2 vel = normalize(diff / texelSize) * splatForce;
+                                            pixel.g = vel.x;
+                                            pixel.b = vel.y;
+                                        } else {
+                                            pixel = mix(pixel, vec4(uMouseColor, 1.0), influence);
+                                        }
+                                    }
+                                }
+                            }
+                            gl_FragColor = pixel;
+                        }
+                    `
+                });
+            }
+        }
+
+        class CurlShader extends THREE.ShaderMaterial {
+            constructor(texelSize, params) {
+                super({
+                    uniforms: {
+                        uVelocity: { value: null },
+                        texelSize: { value: texelSize },
+                        vorticityInfluence: { value: params.vorticityInfluence }
+                    },
+                    vertexShader,
+                    fragmentShader:`
+                        precision mediump float;
+                        varying highp vec2 vUv;
+                        varying highp vec2 vL;
+                        varying highp vec2 vR;
+                        varying highp vec2 vT;
+                        varying highp vec2 vB;
+                        uniform sampler2D uVelocity;
+                        uniform float vorticityInfluence;
+
+                        void main () {
+                            float L = texture2D(uVelocity, vL).b;
+                            float R = texture2D(uVelocity, vR).b;
+                            float T = texture2D(uVelocity, vT).g;
+                            float B = texture2D(uVelocity, vB).g;
+                            float vorticity = R - L - T + B;
+                            vec4 pixel = texture2D(uVelocity, vUv);
+                            pixel.a = vorticityInfluence * vorticity;
+                            gl_FragColor = pixel;
+                        }
+                    `
+                });
+            }
+        }
+
+        class VorticityShader extends THREE.ShaderMaterial {
+            constructor(texelSize, params) {
+                super({
+                    uniforms: {
+                        uVelocityAndCurl: { value: null },
+                        texelSize: { value: texelSize },
+                        curl: { value: params.curl },
+                        dt: { value: 0 },
+                    },
+                    vertexShader,
+                    fragmentShader:`
+                        precision highp float;
+                        varying vec2 vUv;
+                        varying vec2 vL;
+                        varying vec2 vR;
+                        varying vec2 vT;
+                        varying vec2 vB;
+                        uniform sampler2D uVelocityAndCurl;
+                        uniform float curl;
+                        uniform float dt;
+
+                        void main () {
+                            float L = texture2D(uVelocityAndCurl, vL).a;
+                            float R = texture2D(uVelocityAndCurl, vR).a;
+                            float T = texture2D(uVelocityAndCurl, vT).a;
+                            float B = texture2D(uVelocityAndCurl, vB).a;
+                            float C = texture2D(uVelocityAndCurl, vUv).a;
+                            vec2 force = 0.5 * vec2(abs(T) - abs(B), abs(R) - abs(L));
+                            force /= length(force) + 0.0001;
+                            force *= curl * C;
+                            force.y *= -1.0;
+                            vec4 pixel = texture2D(uVelocityAndCurl, vUv);
+                            vec2 velocity = pixel.gb;
+                            velocity += force * dt;
+                            velocity = min(max(velocity, -1000.0), 1000.0);
+                            gl_FragColor = vec4(pixel.r, velocity, 0.0);
+                        }
+                    `
+                });
+            }
+        }
+
+        class DivergenceShader extends THREE.ShaderMaterial {
+            constructor(texelSize) {
+                super({
+                    uniforms: {
+                        uVelocity: { value: null },
+                        texelSize: { value: texelSize },
+                    },
+                    vertexShader,
+                    fragmentShader:`
+                        precision mediump float;
+                        varying highp vec2 vUv;
+                        varying highp vec2 vL;
+                        varying highp vec2 vR;
+                        varying highp vec2 vT;
+                        varying highp vec2 vB;
+                        uniform sampler2D uVelocity;
+
+                        void main () {
+                            float L = texture2D(uVelocity, vL).g;
+                            float R = texture2D(uVelocity, vR).g;
+                            float T = texture2D(uVelocity, vT).b;
+                            float B = texture2D(uVelocity, vB).b;
+                            vec4 pixel = texture2D(uVelocity, vUv);
+                            vec2 C = pixel.gb;
+                            if (vL.x < 0.0) { L = -C.x; }
+                            if (vR.x > 1.0) { R = -C.x; }
+                            if (vT.y > 1.0) { T = -C.y; }
+                            if (vB.y < 0.0) { B = -C.y; }
+                            float div = 0.5 * (R - L + T - B);
+                            gl_FragColor = vec4(pixel.r, C, div);
+                        }
+                    `
+                });
+            }
+        }
+
+        class ClearShader extends THREE.ShaderMaterial {
+            constructor(texelSize, params) {
+                super({
+                    uniforms: {
+                        uTexture: { value: null },
+                        value: { value: params.clearValue },
+                    },
+                    vertexShader: `
+                        varying vec2 vUv;
+                        void main() {
+                            vUv = uv;
+                            gl_Position = vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader:`
+                        precision mediump float;
+                        varying highp vec2 vUv;
+                        uniform sampler2D uTexture;
+                        uniform float value;
+
+                        void main () {
+                            vec4 pixel = texture2D(uTexture, vUv);
+                            pixel.r *= value;
+                            gl_FragColor = pixel;
+                        }
+                    `
+                });
+            }
+        }
+
+        class PressureShader extends THREE.ShaderMaterial {
+            constructor(texelSize) {
+                super({
+                    uniforms: {
+                        uPressureWithDivergence: { value: null },
+                        texelSize: { value: texelSize },
+                    },
+                    vertexShader,
+                    fragmentShader:`
+                        precision mediump float;
+                        varying highp vec2 vUv;
+                        varying highp vec2 vL;
+                        varying highp vec2 vR;
+                        varying highp vec2 vT;
+                        varying highp vec2 vB;
+                        uniform sampler2D uPressureWithDivergence;
+
+                        void main () {
+                            float L = texture2D(uPressureWithDivergence, vL).x;
+                            float R = texture2D(uPressureWithDivergence, vR).x;
+                            float T = texture2D(uPressureWithDivergence, vT).x;
+                            float B = texture2D(uPressureWithDivergence, vB).x;
+                            vec4 pixel = texture2D(uPressureWithDivergence, vUv);
+                            float divergence = pixel.a;
+                            float pressure = (L + R + B + T - divergence) * 0.25;
+                            pixel.x = pressure;
+                            gl_FragColor = pixel;
+                        }
+                    `
+                });
+            }
+        }
+
+        class GradientSubtractShader extends THREE.ShaderMaterial {
+            constructor(texelSize) {
+                super({
+                    uniforms: {
+                        uPressureWithVelocity: { value: null },
+                        texelSize: { value: texelSize },
+                    },
+                    vertexShader,
+                    fragmentShader:`
+                        precision mediump float;
+                        varying vec2 vUv;
+                        varying vec2 vL;
+                        varying vec2 vR;
+                        varying vec2 vT;
+                        varying vec2 vB;
+                        uniform sampler2D uPressureWithVelocity;
+
+                        void main () {
+                            float L = texture2D(uPressureWithVelocity, vL).r;
+                            float R = texture2D(uPressureWithVelocity, vR).r;
+                            float T = texture2D(uPressureWithVelocity, vT).r;
+                            float B = texture2D(uPressureWithVelocity, vB).r;
+                            vec2 velocity = texture2D(uPressureWithVelocity, vUv).gb;
+                            velocity -= vec2(R - L, T - B) * 0.5;
+                            gl_FragColor = vec4(texture2D(uPressureWithVelocity, vUv).r, velocity, 1.0);
+                        }
+                    `
+                });
+            }
+        }
+
+        class AdvectionShader extends THREE.ShaderMaterial {
+            constructor(texelSize, params) {
+                super({
+                    uniforms: {
+                        uVelocity: { value: null },
+                        uSource: { value: null },
+                        texelSize: { value: texelSize },
+                        dt: { value: 0 },
+                        dissipation: { value: params.dissipation },
+                    },
+                    vertexShader: `
+                        varying vec2 vUv;
+                        void main() {
+                            vUv = uv;
+                            gl_Position = vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader:`
+                        precision mediump float;
+                        varying vec2 vUv;
+                        uniform sampler2D uVelocity;
+                        uniform sampler2D uSource;
+                        uniform vec2 texelSize;
+                        uniform float dt;
+                        uniform float dissipation;
+
+                        void main () {
+                            vec2 coord = vUv - dt * texture2D(uVelocity, vUv).gb * texelSize;
+                            gl_FragColor = dissipation * texture2D(uSource, coord);
+                            gl_FragColor.a = 1.0;
+                        }
+                    `
+                });
+            }
+        }
+
+        class FluidMaterial extends THREE.ShaderMaterial {
+            constructor(width, height, params) {
+                super({
+                    uniforms: {
+                        uDye: { value: null },
+                    },
+                    vertexShader: `
+                        varying vec2 vUv;
+                        void main () {
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        varying vec2 vUv;
+                        uniform sampler2D uDye;
+                        void main () {
+                            gl_FragColor = texture2D(uDye, vUv);
+                        }
+                    `
+                });
+                this.transparent = true;
+                this.depthWrite = false;
+                this.params = params;
+
+                const options = {
+                    minFilter: THREE.LinearFilter,
+                    magFilter: THREE.LinearFilter,
+                    format: THREE.RGBAFormat,
+                    type: THREE.FloatType
+                };
+
+                this.velocityA = new THREE.WebGLRenderTarget(width, height, options);
+                this.velocityB = new THREE.WebGLRenderTarget(width, height, options);
+
+                this.dyeA = new THREE.WebGLRenderTarget(width, height, options);
+                this.dyeB = new THREE.WebGLRenderTarget(width, height, options);
+
+                this.texelSize = new THREE.Vector2(1 / width, 1 / height);
+
+                this.aspectRatio = height / width;
+
+                this.splatShader = new SplatShader(this.texelSize, this.aspectRatio, params);
+
+                this.curlShader = new CurlShader(this.texelSize, params);
+
+                this.vorticityShader = new VorticityShader(this.texelSize, params);
+
+                this.divergenceShader = new DivergenceShader(this.texelSize);
+
+                this.clearShader = new ClearShader(this.texelSize, params);
+
+                this.pressureShader = new PressureShader(this.texelSize);
+
+                this.gradientSubtractShader = new GradientSubtractShader(this.texelSize);
+
+                this.advectionShader = new AdvectionShader(this.texelSize, params);
+
+                this.fullScreenQuad = new FullScreenQuad();
+
+                this.mouseCurrent = new THREE.Vector2();
+
+                this.mousePrev = new THREE.Vector2();
+
+                this.mouseDown = false;
+
+                this.colorCycle = 0;
+
+                this.uniforms.uDye.value = this.dyeA.texture;
+
+            }
+
+            drawHeart(renderer) {
+                // Draw heart shape in dye texture
+                const heartShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        uTarget: { value: this.dyeA.texture },
+                        texelSize: { value: this.texelSize }
+                    },
+                    vertexShader: `
+                        varying vec2 vUv;
+                        void main() {
+                            vUv = uv;
+                            gl_Position = vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        precision mediump float;
+                        varying vec2 vUv;
+                        uniform sampler2D uTarget;
+                        uniform vec2 texelSize;
+                        
+                        float heartShape(vec2 uv) {
+                            uv = (uv - 0.5) * vec2(2.0, 2.0);
+                            uv.y = -uv.y;
+                            float x = uv.x;
+                            float y = uv.y;
+                            float x2 = x * x;
+                            float y2 = y * y;
+                            float heart = pow(x2 + y2 - 1.0, 3.0) - x2 * y2 * y;
+                            return smoothstep(0.05, -0.05, heart);
+                        }
+                        
+                        void main() {
+                            vec4 pixel = texture2D(uTarget, vUv);
+                            float heart = heartShape(vUv);
+                            vec3 color = vec3(1.0, 0.2, 0.4);
+                            pixel.rgb = mix(pixel.rgb, color, heart * 0.8);
+                            gl_FragColor = pixel;
+                        }
+                    `
+                });
+                
+                const quad = new FullScreenQuad();
+                quad.material = heartShader;
+                renderer.setRenderTarget(this.dyeB);
+                quad.render(renderer);
+                [this.dyeA, this.dyeB] = [this.dyeB, this.dyeA];
+                this.uniforms.uDye.value = this.dyeA.texture;
+            }
+
+            update(delta, renderer) {
+
+                // Update shader uniforms from params
+                this.splatShader.uniforms.splatForce.value = this.params.splatForce;
+                this.splatShader.uniforms.uMouseRatio.value = this.params.mouseRatio;
+                this.curlShader.uniforms.vorticityInfluence.value = this.params.vorticityInfluence;
+                this.vorticityShader.uniforms.curl.value = this.params.curl;
+                this.clearShader.uniforms.value.value = this.params.clearValue;
+                this.advectionShader.uniforms.dissipation.value = this.params.dissipation;
+
+                // Splat velocity
+
+                this.splatShader.uniforms.uTarget.value = this.velocityA.texture;
+
+                this.splatShader.uniforms.splatVelocity.value = true;
+
+                this.splatShader.uniforms.uMouseCurrent.value = this.mouseCurrent;
+
+                this.splatShader.uniforms.uMousePrev.value = this.mousePrev;
+
+                this.splatShader.uniforms.uMouseDown.value = this.mouseDown;
+
+                this.fullScreenQuad.material = this.splatShader;
+
+                renderer.setRenderTarget(this.velocityB);
+
+                this.fullScreenQuad.render(renderer);
+
+                [this.velocityA, this.velocityB] = [this.velocityB, this.velocityA];
+
+                // Splat color
+
+                this.splatShader.uniforms.uTarget.value = this.dyeA.texture;
+
+                this.splatShader.uniforms.splatVelocity.value = false;
+
+                this.splatShader.uniforms.uMouseColor.value.setHSL(this.colorCycle, 1, 0.5); // colorful
+
+                this.colorCycle = (this.colorCycle + 0.01) % 1;
+
+                this.fullScreenQuad.material = this.splatShader;
+
+                renderer.setRenderTarget(this.dyeB);
+
+                this.fullScreenQuad.render(renderer);
+
+                [this.dyeA, this.dyeB] = [this.dyeB, this.dyeA];
+
+                // Curl
+
+                this.curlShader.uniforms.uVelocity.value = this.velocityA.texture;
+
+                this.fullScreenQuad.material = this.curlShader;
+
+                renderer.setRenderTarget(this.velocityB);
+
+                this.fullScreenQuad.render(renderer);
+
+                [this.velocityA, this.velocityB] = [this.velocityB, this.velocityA];
+
+                // Vorticity
+
+                this.vorticityShader.uniforms.uVelocityAndCurl.value = this.velocityA.texture;
+
+                this.vorticityShader.uniforms.dt.value = delta;
+
+                this.fullScreenQuad.material = this.vorticityShader;
+
+                renderer.setRenderTarget(this.velocityB);
+
+                this.fullScreenQuad.render(renderer);
+
+                [this.velocityA, this.velocityB] = [this.velocityB, this.velocityA];
+
+                // Divergence
+
+                this.divergenceShader.uniforms.uVelocity.value = this.velocityA.texture;
+
+                this.fullScreenQuad.material = this.divergenceShader;
+
+                renderer.setRenderTarget(this.velocityB);
+
+                this.fullScreenQuad.render(renderer);
+
+                [this.velocityA, this.velocityB] = [this.velocityB, this.velocityA];
+
+                // Clear
+
+                this.clearShader.uniforms.uTexture.value = this.velocityA.texture;
+
+                this.fullScreenQuad.material = this.clearShader;
+
+                renderer.setRenderTarget(this.velocityB);
+
+                this.fullScreenQuad.render(renderer);
+
+                [this.velocityA, this.velocityB] = [this.velocityB, this.velocityA];
+
+                // Pressure iterations
+
+                for (let i = 0; i < this.params.pressureIterations; i++) {
+
+                    this.pressureShader.uniforms.uPressureWithDivergence.value = this.velocityA.texture;
+
+                    this.fullScreenQuad.material = this.pressureShader;
+
+                    renderer.setRenderTarget(this.velocityB);
+
+                    this.fullScreenQuad.render(renderer);
+
+                    [this.velocityA, this.velocityB] = [this.velocityB, this.velocityA];
+
+                }
+
+                // Gradient subtract
+
+                this.gradientSubtractShader.uniforms.uPressureWithVelocity.value = this.velocityA.texture;
+
+                this.fullScreenQuad.material = this.gradientSubtractShader;
+
+                renderer.setRenderTarget(this.velocityB);
+
+                this.fullScreenQuad.render(renderer);
+
+                [this.velocityA, this.velocityB] = [this.velocityB, this.velocityA];
+
+                // Advection for velocity
+
+                this.advectionShader.uniforms.dt.value = delta;
+
+                this.advectionShader.uniforms.dissipation.value = this.params.velocityDissipation;
+
+                this.advectionShader.uniforms.uVelocity.value = this.velocityA.texture;
+
+                this.advectionShader.uniforms.uSource.value = this.velocityA.texture;
+
+                this.fullScreenQuad.material = this.advectionShader;
+
+                renderer.setRenderTarget(this.velocityB);
+
+                this.fullScreenQuad.render(renderer);
+
+                [this.velocityA, this.velocityB] = [this.velocityB, this.velocityA];
+
+                // Advection for dye
+
+                this.advectionShader.uniforms.dissipation.value = this.params.dissipation;
+
+                this.advectionShader.uniforms.uVelocity.value = this.velocityA.texture;
+
+                this.advectionShader.uniforms.uSource.value = this.dyeA.texture;
+
+                this.fullScreenQuad.material = this.advectionShader;
+
+                renderer.setRenderTarget(this.dyeB);
+
+                this.fullScreenQuad.render(renderer);
+
+                [this.dyeA, this.dyeB] = [this.dyeB, this.dyeA];
+
+                this.uniforms.uDye.value = this.dyeA.texture;
+
+                this.mousePrev.copy(this.mouseCurrent);
+
+            }
+        }
+
+        // Setup
+
+        const canvas = document.createElement('canvas');
+
+        document.body.appendChild(canvas);
+
+        const renderer = new THREE.WebGLRenderer({ canvas });
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        const scene = new THREE.Scene();
+
+        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+        const simResolution = 256;
+
+        // Simulation parameters
+        const params = {
+            splatForce: -196,
+            mouseRatio: 0.02,
+            vorticityInfluence: 1,
+            curl: 30,
+            dissipation: 0.98,
+            velocityDissipation: 0.99,
+            clearValue: 0.5,
+            pressureIterations: 20
+        };
+
+        const fluidMat = new FluidMaterial(simResolution, simResolution, params);
+
+        const geometry = new THREE.PlaneGeometry(2, 2);
+
+        const mesh = new THREE.Mesh(geometry, fluidMat);
+
+        scene.add(mesh);
+
+        // Draw initial heart
+        fluidMat.drawHeart(renderer);
+
+        // GUI controls
+        const gui = new lil.GUI();
+        gui.add(params, 'splatForce', -500, 0).name('Splat Force');
+        gui.add(params, 'mouseRatio', 0.001, 0.1).name('Mouse Radius');
+        gui.add(params, 'vorticityInfluence', 0, 5).name('Vorticity');
+        gui.add(params, 'curl', 0, 100).name('Curl');
+        gui.add(params, 'dissipation', 0.9, 1.0).name('Dye Dissipation');
+        gui.add(params, 'velocityDissipation', 0.9, 1.0).name('Velocity Dissipation');
+        gui.add(params, 'clearValue', 0, 1).name('Clear Value');
+        gui.add(params, 'pressureIterations', 1, 50).step(1).name('Pressure Iterations');
+
+        let mouseDown = false;
+        let touchDown = false;
+
+        let mouseX = 0, mouseY = 0;
+
+        function updateMousePos(x, y) {
+            mouseX = x / window.innerWidth;
+            mouseY = 1 - y / window.innerHeight;
+            fluidMat.mouseCurrent.set(mouseX, mouseY);
+        }
+
+        canvas.addEventListener('mousemove', (e) => {
+            updateMousePos(e.clientX, e.clientY);
+        });
+
+        canvas.addEventListener('mousedown', () => {
+            mouseDown = true;
+            fluidMat.mouseDown = true;
+            hideHint();
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            mouseDown = false;
+            fluidMat.mouseDown = false;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (e.touches.length > 0) {
+                updateMousePos(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        });
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            touchDown = true;
+            fluidMat.mouseDown = true;
+            if (e.touches.length > 0) {
+                updateMousePos(e.touches[0].clientX, e.touches[0].clientY);
+            }
+            hideHint();
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            touchDown = false;
+            fluidMat.mouseDown = false;
+        });
+
+        // Hide hint after interaction
+        const hint = document.getElementById('hint');
+        function hideHint() {
+            hint.classList.add('hidden');
+            setTimeout(() => hint.style.display = 'none', 500);
+        }
+
+        window.addEventListener('resize', () => {
+
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+        });
+
+        let last = performance.now();
+
+        function animate() {
+
+            requestAnimationFrame(animate);
+
+            const now = performance.now();
+
+            let delta = (now - last) / 1000;
+
+            if (delta > 1 / 20) delta = 1 / 20;
+
+            last = now;
+
+            fluidMat.update(delta, renderer);
+
+            renderer.setRenderTarget(null);
+
+            renderer.render(scene, camera);
+
+        }
+
+        animate();
+
+    </script>
+</body>
+</html>

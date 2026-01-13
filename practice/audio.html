@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Audio-Reactive TSL Demo</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: monospace;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">Loading audio...</div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.webgpu.js",
+            "three/webgpu": "https://cdn.jsdelivr.net/npm/three@latest/build/three.webgpu.js",
+            "three/tsl": "https://cdn.jsdelivr.net/npm/three@latest/build/three.tsl.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three/webgpu';
+        import { 
+            float, vec2, vec3, vec4, color, uniform, Fn, 
+            sin, cos, PI, mix, 
+            positionLocal, normalLocal, uv
+        } from 'three/tsl';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let camera, scene, renderer, controls;
+        let audioContext, audioSource, analyser, dataArray;
+        let bassFilter, midFilter, highFilter;
+        let bassUniform, midUniform, highUniform;
+        let bassGain, midGain, highGain;
+
+        // Audio analysis values
+        let bassLevel = 0;
+        let midLevel = 0;
+        let highLevel = 0;
+
+        init();
+
+        async function init() {
+            // Setup renderer
+            renderer = new THREE.WebGPURenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor('#000000');
+            document.body.appendChild(renderer.domElement);
+            await renderer.init();
+
+            // Setup scene
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 0, 5);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // Setup audio
+            await setupAudio();
+
+            // Create TSL material
+            bassUniform = uniform(0);
+            midUniform = uniform(0);
+            highUniform = uniform(0);
+            const timeUniform = uniform(0);
+
+            const material = new THREE.MeshNodeMaterial();
+            
+            // Vertex shader - bass affects geometry distortion
+            material.vertexNode = Fn(() => {
+                const time = timeUniform;
+                
+                const pos = positionLocal;
+                const uvs = uv();
+                
+                // Bass: radial pulsing distortion along normal
+                const bassPulse = bassUniform.mul(0.5);
+                const bassWave = sin(time.mul(2).add(uvs.x.mul(PI.mul(6)))).mul(bassPulse);
+                const bassDistortion = normalLocal.mul(bassWave);
+                
+                // Mid: vertical waves along Y axis
+                const midWave = midUniform.mul(0.3).mul(sin(uvs.y.mul(PI.mul(4)).add(time.mul(3))));
+                const midDistortion = vec3(0, midWave, 0);
+                
+                // High: rapid oscillations in all directions
+                const highOsc = highUniform.mul(0.2);
+                const highX = sin(time.mul(10).add(uvs.x.mul(PI.mul(8)))).mul(highOsc);
+                const highY = cos(time.mul(12).add(uvs.y.mul(PI.mul(6)))).mul(highOsc);
+                const highZ = sin(time.mul(8).add(uvs.x.add(uvs.y).mul(PI.mul(4)))).mul(highOsc);
+                const highDistortion = vec3(highX, highY, highZ);
+                
+                // Combine all distortions
+                const distortion = pos
+                    .add(bassDistortion)
+                    .add(midDistortion)
+                    .add(highDistortion);
+                
+                return distortion;
+            })();
+
+            // Fragment shader - mid affects color, high affects brightness
+            material.colorNode = Fn(() => {
+                const uvs = uv();
+                const time = timeUniform;
+                
+                // Base color shifts with mid frequencies
+                const hueShift = midUniform.mul(0.5);
+                const baseColor = vec3(
+                    sin(time.add(hueShift)).mul(0.5).add(0.5),
+                    cos(time.add(hueShift.mul(0.7))).mul(0.5).add(0.5),
+                    sin(time.add(hueShift.mul(1.3))).mul(0.5).add(0.5)
+                );
+                
+                // Bass adds deep red/purple
+                const bassColor = vec3(bassUniform.mul(0.8), bassUniform.mul(0.2), bassUniform.mul(1.0));
+                
+                // High adds bright white highlights
+                const highColor = vec3(highUniform.mul(0.5));
+                
+                // Mix colors
+                const finalColor = baseColor
+                    .add(bassColor)
+                    .add(highColor)
+                    .mul(highUniform.mul(0.3).add(0.7)); // Brightness from high freq
+                
+                return vec4(finalColor, 1.0);
+            })();
+
+            // Create torus geometry
+            const geometry = new THREE.TorusGeometry(1.5, 0.5, 64, 128);
+            const mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            // Animation loop
+            const startTime = Date.now();
+            renderer.setAnimationLoop(() => {
+                // Update time uniform
+                timeUniform.value = (Date.now() - startTime) / 1000;
+                
+                updateAudio();
+                controls.update();
+                renderer.render(scene, camera);
+            });
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        async function setupAudio() {
+            try {
+                // Resume audio context on user interaction (required by browsers)
+                const resumeAudio = async () => {
+                    if (audioContext && audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+                };
+                document.addEventListener('click', resumeAudio, { once: true });
+                document.addEventListener('touchstart', resumeAudio, { once: true });
+
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Load audio file
+                const response = await fetch('../audio/how.mp3');
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                const arrayBuffer = await response.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                
+                // Create source
+                audioSource = audioContext.createBufferSource();
+                audioSource.buffer = audioBuffer;
+                audioSource.loop = true;
+
+                // Create master analyser for overall frequency analysis
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                analyser.smoothingTimeConstant = 0.8;
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                // Create bandpass filters for each frequency range
+                bassFilter = audioContext.createBiquadFilter();
+                bassFilter.type = 'bandpass';
+                bassFilter.frequency.value = 100; // Low frequencies
+                bassFilter.Q.value = 2;
+
+                midFilter = audioContext.createBiquadFilter();
+                midFilter.type = 'bandpass';
+                midFilter.frequency.value = 1000; // Mid frequencies
+                midFilter.Q.value = 2;
+
+                highFilter = audioContext.createBiquadFilter();
+                highFilter.type = 'bandpass';
+                highFilter.frequency.value = 5000; // High frequencies
+                highFilter.Q.value = 2;
+
+                // Create analysers for each filtered band
+                const bassAnalyser = audioContext.createAnalyser();
+                bassAnalyser.fftSize = 512;
+                bassAnalyser.smoothingTimeConstant = 0.6;
+                
+                const midAnalyser = audioContext.createAnalyser();
+                midAnalyser.fftSize = 512;
+                midAnalyser.smoothingTimeConstant = 0.6;
+                
+                const highAnalyser = audioContext.createAnalyser();
+                highAnalyser.fftSize = 512;
+                highAnalyser.smoothingTimeConstant = 0.6;
+
+                // Create master gain for output
+                const masterGain = audioContext.createGain();
+                masterGain.gain.value = 0.5;
+
+                // Connect audio graph:
+                // Source -> filters -> analysers (for analysis)
+                // Source -> master gain -> destination (for playback)
+                audioSource.connect(bassFilter);
+                audioSource.connect(midFilter);
+                audioSource.connect(highFilter);
+                audioSource.connect(masterGain);
+                
+                bassFilter.connect(bassAnalyser);
+                midFilter.connect(midAnalyser);
+                highFilter.connect(highAnalyser);
+                
+                masterGain.connect(audioContext.destination);
+
+                // Store analysers for update loop
+                window.bassAnalyser = bassAnalyser;
+                window.midAnalyser = midAnalyser;
+                window.highAnalyser = highAnalyser;
+                window.bassData = new Uint8Array(bassAnalyser.frequencyBinCount);
+                window.midData = new Uint8Array(midAnalyser.frequencyBinCount);
+                window.highData = new Uint8Array(highAnalyser.frequencyBinCount);
+
+                // Start playback (will start when context resumes)
+                audioSource.start(0);
+                
+                // Try to resume immediately
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+                
+                document.getElementById('info').textContent = 'Audio playing - Click to interact';
+                
+            } catch (error) {
+                console.error('Audio setup error:', error);
+                document.getElementById('info').textContent = 'Audio error: ' + error.message;
+            }
+        }
+
+        function updateAudio() {
+            if (!window.bassAnalyser) return;
+
+            // Get frequency data for each band
+            window.bassAnalyser.getByteFrequencyData(window.bassData);
+            window.midAnalyser.getByteFrequencyData(window.midData);
+            window.highAnalyser.getByteFrequencyData(window.highData);
+
+            // Calculate RMS (root mean square) for each band for smoother response
+            let bassSum = 0, midSum = 0, highSum = 0;
+            const bassCount = window.bassData.length;
+            const midCount = window.midData.length;
+            const highCount = window.highData.length;
+
+            for (let i = 0; i < bassCount; i++) {
+                const val = window.bassData[i] / 255;
+                bassSum += val * val;
+            }
+            for (let i = 0; i < midCount; i++) {
+                const val = window.midData[i] / 255;
+                midSum += val * val;
+            }
+            for (let i = 0; i < highCount; i++) {
+                const val = window.highData[i] / 255;
+                highSum += val * val;
+            }
+
+            // Calculate RMS and amplify
+            bassLevel = Math.sqrt(bassSum / bassCount) * 3;
+            midLevel = Math.sqrt(midSum / midCount) * 2.5;
+            highLevel = Math.sqrt(highSum / highCount) * 2;
+
+            // Clamp and smooth
+            bassLevel = Math.min(bassLevel, 1.5);
+            midLevel = Math.min(midLevel, 1.2);
+            highLevel = Math.min(highLevel, 1.0);
+
+            // Update uniforms
+            if (bassUniform) bassUniform.value = bassLevel;
+            if (midUniform) midUniform.value = midLevel;
+            if (highUniform) highUniform.value = highLevel;
+
+            // Update info
+            document.getElementById('info').innerHTML = 
+                `Bass: ${bassLevel.toFixed(2)}<br>` +
+                `Mid: ${midLevel.toFixed(2)}<br>` +
+                `High: ${highLevel.toFixed(2)}`;
+        }
+
+    </script>
+</body>
+</html>
