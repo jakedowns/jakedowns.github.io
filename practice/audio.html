@@ -61,14 +61,17 @@
             background: #00ff00;
             border: 1px solid #000;
             transition: opacity 0.1s ease;
+            box-shadow: 0 0 8px rgba(0, 255, 0, 0.6), 0 0 16px rgba(0, 255, 0, 0.3);
         }
 
         .eq-segment.yellow {
             background: #ffff00;
+            box-shadow: 0 0 8px rgba(255, 255, 0, 0.6), 0 0 16px rgba(255, 165, 0, 0.3);
         }
 
         .eq-segment.red {
             background: #ff0000;
+            box-shadow: 0 0 8px rgba(255, 0, 0, 0.8), 0 0 16px rgba(255, 69, 0, 0.4);
         }
 
         .eq-peak {
@@ -78,6 +81,7 @@
             background: #00ffff;
             transition: top 0.3s ease;
             pointer-events: none;
+            box-shadow: 0 0 6px rgba(0, 255, 255, 0.8), 0 0 12px rgba(0, 255, 255, 0.4);
         }
 
         #startNote {
@@ -300,12 +304,12 @@
 
     <!-- ImGui-style Control Panel -->
     <div id="imgui-panel">
-        <div class="imgui-window">
+        <div class="imgui-window collapsed">
             <div class="imgui-title">Controls</div>
             <div class="imgui-content">
                 <div class="imgui-slider">
                     <label>Amplitude</label>
-                    <input type="range" id="amplitudeSlider" min="0" max="1" step="0.01" value="0.3">
+                    <input type="range" id="amplitudeSlider" min="-100" max="100" step="0.01" value="0.3">
                     <span id="amplitudeValue">0.30</span>
                 </div>
                 <div class="imgui-slider">
@@ -338,12 +342,28 @@
                     <input type="range" id="spikeOffsetSlider" min="1.2" max="2.5" step="0.01" value="1.6">
                     <span id="spikeOffsetValue">1.6</span>
                 </div>
+                <div class="imgui-slider">
+                    <label>Cylinder Rotation</label>
+                    <input type="range" id="cylinderRotationSlider" min="-2" max="2" step="0.01" value="0.5">
+                    <span id="cylinderRotationValue">0.5</span>
+                </div>
 
-                <!-- Bloom Controls Subsection (Disabled for now) -->
-                <!-- <div style="border-top: 1px solid #555; margin: 8px 0; padding-top: 8px;">
-                    <div style="color: #cccccc; font-size: 11px; margin-bottom: 6px; font-weight: bold;">Bloom Effects (WebGPU)</div>
-                    <div style="color: #888; font-size: 10px; margin-bottom: 6px;">Coming soon with WebGPU shaders</div>
-                </div> -->
+                <!-- Bloom Controls Subsection (WebGPU compatibility) -->
+                <div style="border-top: 1px solid #555; margin: 8px 0; padding-top: 8px;">
+                    <div style="color: #cccccc; font-size: 11px; margin-bottom: 6px; font-weight: bold;">Bloom Effects</div>
+                    <div style="color: #888; font-size: 10px; margin-bottom: 6px;">Emissive cubes provide glow. Bloom coming with WebGPU post-processing support.</div>
+                </div>
+                <div style="border-top: 1px solid #555; margin: 8px 0; padding-top: 8px;">
+                    <div style="color: #cccccc; font-size: 11px; margin-bottom: 6px; font-weight: bold;">Shadow Quality</div>
+                    <div class="imgui-slider">
+                        <label>Quality</label>
+                        <select id="shadowQualitySelect" style="flex: 2; background: #444; border: 1px solid #666; color: #ffffff; padding: 2px 4px; font-size: 11px;">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -362,17 +382,11 @@
     <script type="module">
         import * as THREE from 'three';
         import {
-            float, vec2, vec3, vec4, color, uniform, Fn,
-            sin, cos, PI, mix, normalize, length,
-            clamp,
-            positionLocal, normalLocal, uv,
-            positionWorld, normalWorld, cameraPosition,
-            cameraViewMatrix, cameraProjectionMatrix, cameraWorldMatrix,
-            modelWorldMatrix
+            Fn, PI, abs, add, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, cameraWorldMatrix, clamp, color, cos, div, dot, floor, float, fract, fwidth, length, lessThan, mix, modelWorldMatrix, mod, mul, normalize, normalGeometry, normalLocal, normalWorld, positionLocal, positionWorld, pow, select, sin, smoothstep, sub, uniform, uv, vec2, vec3, vec4
         } from 'three/tsl';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        let camera, scene, renderer, controls, specularity, spikeBaseOffset;
+        let camera, scene, renderer, controls, specularity, spikeBaseOffset, cylinderRotationSpeed, pointLight, ambientLight, cylinder;
         let audioContext, audioSource, analyser, dataArray;
         let bassFilter, midFilter, highFilter;
         let bassUniform, midUniform, highUniform;
@@ -409,8 +423,9 @@
             document.body.appendChild(renderer.domElement);
             await renderer.init();
 
-            // For now, skip post-processing due to WebGPU compatibility issues
-            // Will implement custom bloom shader later
+            // For WebGPU compatibility, we'll skip advanced post-processing for now
+            // The emissive cubes should provide sufficient glow effects
+            // TODO: Implement proper WebGPU-compatible bloom when Three.js adds support
             const composer = { render: () => renderer.render(scene, camera) };
 
             // Ensure the canvas can receive pointer events
@@ -426,6 +441,140 @@
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
             camera.position.set(0, 0, 8);
+
+            // Create enclosing cylinder with checkerboard pattern
+            const cylinderGeometry = new THREE.CylinderGeometry(12, 12, 60, 32, 1, true); // Open ends, double-sided
+
+            // Animated checkerboard cylinder material
+            // Cylinder background with animated checkerboard (TSL implementation)
+            // TSL NodeMaterial for animated checkerboard with row slipping
+            // This must be done after you define timeUniform later in init()
+            function checkerboardNode() {
+                // Slipping and sliding parameters as constants
+                const slipSpeed = float(0.02);   // Slip up the Y axis (all rows)
+                const slideSpeed = float(0.015); // Slide base rate along the X axis
+                const rowSlipFactor = float(0.005); // How much faster each row slips/rotates horizontally
+                const checks = float(16.0);
+
+                // Audio uniform (for visual responsiveness)
+                // We'll use bassUniform and highUniform for color modulation
+                // These should be 0..1 values set by the audio analysis
+                // (bassUniform/float, highUniform/float should be available in local scope)
+                const bass = clamp(bassUniform, float(0.0), float(1.0));
+                const high = clamp(highUniform, float(0.0), float(1.0));
+
+                // Get UV (assume vUv.y is [0,1])
+                const vUv = uv();
+
+                // Calculate which row this fragment is in, and a [0,1) in-row position
+                const rowIdx = floor(mul(vUv.y, checks));            // 0 .. 15
+                const rowFrac = fract(mul(vUv.y, checks));           // 0 .. <1 per row
+                const rowNorm = div(rowIdx, checks);                 // normalized 0 .. <1 for hue phase
+
+                // Row-dependent x-slip: rows higher up rotate slightly faster
+                // The time phase is offset and the speed scales per row, for effect
+                const rowExtraX = mul(timeUniform, mul(rowIdx, rowSlipFactor));
+
+                // Add slip (vertical, all rows) and sliding (x, all rows + extra slip per row)
+                const slippedSlidUv = add(
+                    vUv,
+                    vec2(
+                        add(mul(timeUniform, slideSpeed), rowExtraX), // x: slide + extra based on row
+                        mul(timeUniform, slipSpeed)                   // y: slips upward for all
+                    )
+                );
+
+                // Checkerboard positions, wrapping so pattern is always tiled
+                let checkX = floor(mul(fract(slippedSlidUv.x), checks)); // wrap X w/ fract
+                let checkY = floor(mul(fract(slippedSlidUv.y), checks)); // wrap Y w/ fract
+
+                // Traditional checker pattern
+                let checker = mod(add(checkX, checkY), float(2.0));
+
+                // Colors
+                // Use audio values to modulate color2 brightness and hue
+                // color2 will get brighter with high freq and tint with bass
+
+                // Modulate base brightness and hue by audio, 
+                // AND add a hue shift based on row depth (vertical position in checkerboard)
+                let baseBright = add(float(0.7), mul(high, float(0.4))); // brighten with highs: 0.7..1.1
+
+                // Add rowNorm to hue for a full cycle across vertical stack, scaled to less than full rainbow
+                let baseHue = add(
+                    mul(bass, float(0.6)),                   // sweep 0..0.6 from bass
+                    mul(rowNorm, float(0.18))                // extra 0..0.18 hue shift from row position (1/5 of full hue wheel)
+                );
+
+                // HSV to RGB conversion for TSL/Node API; ensure .0 floats throughout
+                function hsv2rgb(h, s, v) {
+                    // h, s, v are expected as float/vec3
+                    let c = mul(v, s);
+                    let hp = mul(h, float(6.0));
+                    let x = mul(c, sub(float(1.0), abs(sub(mod(hp, float(2.0)), float(1.0)))));
+                    let m = sub(v, c);
+
+                    // Use select for conditional logic instead of cond
+                    let rgb = select(
+                        lessThan(hp, float(1.0)),
+                        add(vec3(c, x, 0.0), m),
+                        select(
+                            lessThan(hp, float(2.0)),
+                            add(vec3(x, c, 0.0), m),
+                            select(
+                                lessThan(hp, float(3.0)),
+                                add(vec3(0.0, c, x), m),
+                                select(
+                                    lessThan(hp, float(4.0)),
+                                    add(vec3(0.0, x, c), m),
+                                    select(
+                                        lessThan(hp, float(5.0)),
+                                        add(vec3(x, 0.0, c), m),
+                                        add(vec3(c, 0.0, x), m)
+                                    )
+                                )
+                            )
+                        )
+                    );
+                    return rgb;
+                }
+
+                let color1 = vec3(0.11, 0.11, 0.11); // darker black for more contrast
+
+                // color2 is audio-modulated, HSV->RGB, w/ row hue phase
+                let color2 = hsv2rgb(baseHue, float(0.5), baseBright);
+
+                let checkerColor = mix(color1, color2, checker);
+
+                return checkerColor;
+            }
+
+            // Create a MeshStandardMaterial and use the checkerboard as a NodeMaterial color
+            const cylinderMaterial = new THREE.MeshStandardMaterial({
+                side: THREE.DoubleSide,
+                transparent: false,
+                roughness: 0.8,
+                metalness: 0.1
+            });
+            cylinderMaterial.colorNode = Fn(() => {
+                // Get the base checkerboard color
+                const checkerColor = checkerboardNode();
+
+                // Add distance-based falloff using UV.y
+                // Higher UV.y values get darker (further from camera)
+                const vUv = uv();
+                const falloffFactor = float(1.0).sub(vUv.y.mul(0.6)); // Fade from 1.0 to 0.4
+                const falloffColor = checkerColor.mul(falloffFactor);
+
+                return falloffColor;
+            })();
+
+            cylinder = new THREE.Mesh(cylinderGeometry, cylinderMaterial);
+            cylinder.position.set(0, 0, 0);
+            cylinder.rotation.x = Math.PI / 2; // 90-degree rotation on X-axis
+            cylinder.scale.set(-1, -1, -1); // Flip normals inward
+            cylinder.castShadow = false; // Don't cast shadows
+            cylinder.receiveShadow = false; // Don't receive shadows
+            scene.add(cylinder);
 
             // Setup audio
             await setupAudio();
@@ -452,17 +601,23 @@
             const timeUniform = uniform(0);
 
             // Wobble control uniforms
-            wobbleAmplitude = uniform(0.3);
+            wobbleAmplitude = uniform(3.0);
             noiseScale = uniform(2.0);
             noiseFrequency = uniform(1.0);
             timeModulation = uniform(2.0);
             rotationSpeed = uniform(30.0); // Half degree per second
             specularity = uniform(0.5); // Specularity/metalness control (0-1)
 
-            // Create normal material
+            // Create normal material for the sphere
             const normalMaterial = new THREE.MeshStandardMaterial({
                 metalness: 0.5,
                 roughness: 0.5
+            });
+
+            // Create dedicated spike material with unique shaders
+            const spikeMaterial = new THREE.MeshStandardMaterial({
+                metalness: 0.8,
+                roughness: 0.3
             });
 
             // Vertex shader - bass affects geometry distortion with camera awareness
@@ -509,7 +664,7 @@
                 return clipPos;
             })();
 
-            // Fragment shader - gradient from top to bottom with independent hue offsets
+            // Fragment shader - gradient from top to bottom with independent hue offsets, Fresnel effect, and wireframe overlay
             normalMaterial.colorNode = Fn(() => {
                 const uvs = uv();
                 const time = timeUniform;
@@ -540,10 +695,34 @@
                 const highColor = vec3(highUniform.mul(0.25), highUniform.mul(0.12), highUniform.mul(0.6));
 
                 // Mix colors, keep it saturated and vivid
-                const finalColor = baseColor
+                let finalColor = baseColor
                     .add(bassColor)
                     .add(highColor)
                     .mul(highUniform.mul(0.3).add(0.7)); // Brightness from high freq
+
+                // Add Fresnel effect - brighter at grazing angles (fixed in camera space)
+                // For a sphere, the geometric normal is the direction from center to surface point
+                // This gives us camera-relative Fresnel that doesn't rotate with the object
+                const geometricNormal = normalize(positionWorld);
+                const viewDirection = normalize(sub(cameraPosition, positionWorld));
+                const fresnelFactor = pow(float(1.0).sub(abs(dot(viewDirection, geometricNormal))), float(2.0));
+                const fresnelBoost = fresnelFactor.mul(0.5); // Moderate boost
+
+                // Apply Fresnel modulation
+                finalColor = finalColor.add(fresnelBoost);
+
+                // Add wireframe-like effect using screen space derivatives
+                // Use geometric normal for camera-relative wireframe edges
+                // const geometricNormal = normalize(positionWorld); // Sphere normal = normalized position
+                const normalDerivative = fwidth(geometricNormal);
+                const edgeFactor = length(normalDerivative);
+                const wireframeIntensity = smoothstep(float(0.15), float(0.45), edgeFactor);
+
+                // Wireframe color (bright cyan/white)
+                const wireframeColor = vec3(0.8, 1.0, 1.0);
+
+                // Blend wireframe with the shaded color
+                finalColor = mix(finalColor, wireframeColor, wireframeIntensity.mul(0.7));
 
                 // Clamp color, since saturation could go over 1
                 return vec4(clamp(finalColor, 0.0, 1.0), 1.0);
@@ -561,6 +740,67 @@
             // Apply the same shaders to wireframe material
             wireframeMaterial.vertexNode = normalMaterial.vertexNode;
             wireframeMaterial.colorNode = normalMaterial.colorNode;
+
+            // Create unique vertex shader for spikes - simpler distortion focused on audio response
+            spikeMaterial.vertexNode = Fn(() => {
+                const pos = positionLocal;
+                const time = timeUniform;
+
+                // Simpler rotation for spikes - just Y-axis rotation
+                const rotationAngle = time.mul(rotationSpeed).mul(PI).div(180.0);
+                const cosAngle = cos(rotationAngle);
+                const sinAngle = sin(rotationAngle);
+                const rotatedPos = vec3(
+                    pos.x.mul(cosAngle).sub(pos.z.mul(sinAngle)),
+                    pos.y,
+                    pos.x.mul(sinAngle).add(pos.z.mul(cosAngle))
+                );
+
+                // Transform to world space
+                const worldPos = modelWorldMatrix.mul(vec4(rotatedPos, 1.0)).xyz;
+
+                // Audio-responsive distortion - spikes respond more directly to frequency levels
+                const spikeDistortion = bassUniform
+                    .mul(1.5) // Stronger bass response for spikes
+                    .mul(sin(time.mul(4.0).add(worldPos.y.mul(2.0)))); // Faster oscillation
+
+                // Apply distortion along normal direction
+                const worldNormal = normalize(modelWorldMatrix.mul(vec4(normalLocal, 0.0)).xyz);
+                const displacedWorldPos = worldPos.add(worldNormal.mul(spikeDistortion));
+
+                // Transform back to view space
+                const viewPos = cameraViewMatrix.mul(vec4(displacedWorldPos, 1.0));
+                const clipPos = cameraProjectionMatrix.mul(viewPos);
+
+                return clipPos;
+            })();
+
+            // Create unique fragment shader for spikes - energy-like colors
+            spikeMaterial.colorNode = Fn(() => {
+                const time = timeUniform;
+
+                // Create an energy-like color scheme for spikes
+                const energyHue = time.mul(2.0).add(highUniform.mul(2.0)); // Fast color cycling with high freq modulation
+                const energyColor = vec3(
+                    sin(energyHue).mul(0.5).add(0.5),           // Red channel
+                    sin(energyHue.add(PI.mul(0.33))).mul(0.5).add(0.5), // Green channel - offset
+                    sin(energyHue.add(PI.mul(0.67))).mul(0.5).add(0.5)  // Blue channel - offset
+                );
+
+                // Add audio-reactive brightness
+                const audioBrightness = bassUniform.mul(0.8).add(midUniform.mul(0.5)).add(highUniform.mul(0.3)).add(0.2);
+
+                // Fresnel effect for spikes (rim lighting, camera-relative)
+                const viewDirection = normalize(sub(cameraPosition, positionWorld));
+                // For spikes, approximate geometric normal from position (simplified approach)
+                const geometricNormal = normalize(positionWorld);
+                const fresnelFactor = pow(float(1.0).sub(abs(dot(viewDirection, geometricNormal))), float(3.0)); // Sharper falloff
+                const fresnelBoost = fresnelFactor.mul(0.8);
+
+                const finalColor = energyColor.mul(audioBrightness).add(fresnelBoost);
+
+                return vec4(clamp(finalColor, 0.0, 1.0), 1.0);
+            })();
 
             // Create sphere geometry
             const geometry = new THREE.SphereGeometry(1.5, 64, 64);
@@ -585,6 +825,10 @@
             let lastMidPeak = 0;
             let lastHighPeak = 0;
 
+            // Group to contain all cubes
+            const cubesGroup = new THREE.Object3D();
+            scene.add(cubesGroup);
+
             // Function to create cube material based on emission direction
             const createCubeMaterial = (direction, useWireframe) => {
                 // Use direction vector to create color variation
@@ -605,13 +849,16 @@
                 else if (hue < 5/6) { r = x; g = 0; b = c; }
                 else { r = c; g = 0; b = x; }
 
-                const color = Math.round((r + m) * 255) * 0x10000 + Math.round((g + m) * 255) * 0x100 + Math.round((b + m) * 255);
+                const baseColor = new THREE.Color(r + m, g + m, b + m);
+                const emissiveColor = baseColor.clone().multiplyScalar(0.8); // Strong emissive glow
 
                 return new THREE.MeshStandardMaterial({
                     wireframe: useWireframe,
                     transparent: true,
                     opacity: 1.0,
-                    color: color,
+                    color: baseColor,
+                    emissive: emissiveColor,
+                    emissiveIntensity: 0.6,
                     metalness: 0.8,
                     roughness: 0.2
                 });
@@ -623,7 +870,7 @@
                 const cube = new THREE.Mesh(cubeGeometry, defaultMaterial);
                 cube.visible = false;
                 cube.userData.emissionDirection = new THREE.Vector3(0, 1, 0); // Default upward direction
-                scene.add(cube);
+                cubesGroup.add(cube);
                 cubePool.push(cube);
             }
 
@@ -674,7 +921,7 @@
 
             // Helper function to create spikes at positions
             const createSpike = (position, group) => {
-                const spike = new THREE.Mesh(spikeGeometry, wireframeMaterial); // Start with wireframe material since it's default
+                const spike = new THREE.Mesh(spikeGeometry, spikeMaterial); // Use dedicated spike material
                 spike.position.copy(position);
                 spike.userData.originalPosition = position.clone(); // Store original position for extension
                 spike.castShadow = true; // Spikes cast shadows on the sphere
@@ -743,10 +990,8 @@
             spikeBaseOffset = 1.6;
             updateSpikePositions(1.6);
 
-            // Bloom parameters (disabled for WebGPU)
-            // bloomStrength = 1.5;
-            // bloomRadius = 0.4;
-            // bloomThreshold = 0.85;
+            // Initialize cylinder rotation speed
+            cylinderRotationSpeed = 0.05;
 
             // Spike offset slider setup (inside init scope)
             const spikeOffsetSlider = document.getElementById('spikeOffsetSlider');
@@ -768,8 +1013,97 @@
                 }
             }
 
+            // Cylinder rotation slider setup
+            const cylinderRotationSlider = document.getElementById('cylinderRotationSlider');
+            const cylinderRotationValue = document.getElementById('cylinderRotationValue');
+
+            if (cylinderRotationSlider) {
+                cylinderRotationSlider.addEventListener('input', (e) => {
+                    const value = parseFloat(e.target.value);
+                    cylinderRotationSpeed = value;
+                    if (cylinderRotationValue) {
+                        cylinderRotationValue.textContent = value.toFixed(2);
+                    }
+                });
+
+                // Initialize display value
+                if (cylinderRotationValue) {
+                    cylinderRotationValue.textContent = cylinderRotationSpeed.toFixed(2);
+                }
+            }
+
             // Bloom sliders disabled for WebGPU compatibility
             // Will re-enable with custom WebGPU bloom shader
+
+            // Shadow quality update function
+            const updateShadowQuality = (quality) => {
+                const directionalLight = scene.children.find(child => child.isDirectionalLight);
+                const pointLight = scene.children.find(child => child.isPointLight);
+
+                if (!directionalLight || !pointLight) return;
+
+                switch (quality) {
+                    case 'low':
+                        // Low quality: smaller shadow maps, simpler settings
+                        directionalLight.shadow.mapSize.width = 1024;
+                        directionalLight.shadow.mapSize.height = 1024;
+                        directionalLight.shadow.camera.left = -15;
+                        directionalLight.shadow.camera.right = 15;
+                        directionalLight.shadow.camera.top = 15;
+                        directionalLight.shadow.camera.bottom = -15;
+                        directionalLight.shadow.bias = -0.001;
+
+                        pointLight.shadow.mapSize.width = 512;
+                        pointLight.shadow.mapSize.height = 512;
+                        pointLight.shadow.camera.near = 0.5;
+                        pointLight.shadow.camera.far = 20;
+                        break;
+
+                    case 'medium':
+                        // Medium quality: balanced settings
+                        directionalLight.shadow.mapSize.width = 2048;
+                        directionalLight.shadow.mapSize.height = 2048;
+                        directionalLight.shadow.camera.left = -10;
+                        directionalLight.shadow.camera.right = 10;
+                        directionalLight.shadow.camera.top = 10;
+                        directionalLight.shadow.camera.bottom = -10;
+                        directionalLight.shadow.bias = -0.0001;
+
+                        pointLight.shadow.mapSize.width = 1024;
+                        pointLight.shadow.mapSize.height = 1024;
+                        pointLight.shadow.camera.near = 0.1;
+                        pointLight.shadow.camera.far = 15;
+                        break;
+
+                    case 'high':
+                        // High quality: larger shadow maps, more detailed
+                        directionalLight.shadow.mapSize.width = 4096;
+                        directionalLight.shadow.mapSize.height = 4096;
+                        directionalLight.shadow.camera.left = -8;
+                        directionalLight.shadow.camera.right = 8;
+                        directionalLight.shadow.camera.top = 8;
+                        directionalLight.shadow.camera.bottom = -8;
+                        directionalLight.shadow.bias = -0.00005;
+
+                        pointLight.shadow.mapSize.width = 2048;
+                        pointLight.shadow.mapSize.height = 2048;
+                        pointLight.shadow.camera.near = 0.05;
+                        pointLight.shadow.camera.far = 12;
+                        break;
+                }
+
+                // Update shadow maps
+                directionalLight.shadow.map?.dispose();
+                directionalLight.shadow.map = null;
+                directionalLight.shadow.needsUpdate = true;
+
+                pointLight.shadow.map?.dispose();
+                pointLight.shadow.map = null;
+                pointLight.shadow.needsUpdate = true;
+
+                // Force renderer to update shadows
+                renderer.shadowMap.needsUpdate = true;
+            };
 
             // Wireframe toggle functionality
             const wireframeToggle = document.getElementById('wireframeToggle');
@@ -778,8 +1112,7 @@
 
             // Function to update all materials (spikes and cubes)
             const updateAllMaterials = (useWireframe) => {
-                const spikeMaterial = useWireframe ? wireframeMaterial : normalMaterial;
-
+                // Spikes always use their dedicated material (no wireframe toggle for spikes)
                 [...bassSpikes, ...midSpikes, ...highSpikes].forEach(spike => {
                     spike.material = spikeMaterial;
                 });
@@ -793,8 +1126,12 @@
                 });
             };
 
-            // Set initial materials to wireframe
+            // Set initial materials - sphere to wireframe, spikes to dedicated material
+            mesh.material = wireframeMaterial;
             updateAllMaterials(true);
+
+            // Initialize shadow quality to medium (default)
+            updateShadowQuality('medium');
 
             wireframeToggle.addEventListener('change', (e) => {
                 const useWireframe = e.target.checked;
@@ -803,8 +1140,18 @@
             });
 
             // Add lights with shadow casting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
             scene.add(ambientLight);
+
+            // Add point light near camera with hue-shifting color
+            pointLight = new THREE.PointLight(0xffffff, 1.0, 20);
+            pointLight.position.set(2, 2, 6); // Initial position near camera
+            pointLight.castShadow = true;
+            pointLight.shadow.mapSize.width = 1024;
+            pointLight.shadow.mapSize.height = 1024;
+            pointLight.shadow.camera.near = 0.1;
+            pointLight.shadow.camera.far = 15;
+            scene.add(pointLight);
 
             const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
             directionalLight.position.set(5, 5, 5);
@@ -841,14 +1188,37 @@
                 wireframeMaterial.metalness = specValue;
                 wireframeMaterial.roughness = 1.0 - specValue;
 
-                // Bloom disabled for WebGPU compatibility
-                // bloomPass.strength = bloomStrength;
-                // bloomPass.radius = bloomRadius;
-                // bloomPass.threshold = bloomThreshold;
+                // Update point light position to follow camera and hue shifting color
+                pointLight.position.copy(camera.position);
+                pointLight.position.add(new THREE.Vector3(1, 1, -2)); // Offset from camera
+
+                const hue = (time * 0.2) % (Math.PI * 2); // Slow hue cycle
+                const r = Math.sin(hue) * 0.5 + 0.5;
+                const g = Math.sin(hue + Math.PI * 2 / 3) * 0.5 + 0.5;
+                const b = Math.sin(hue + Math.PI * 4 / 3) * 0.5 + 0.5;
+                pointLight.color.setRGB(r, g, b);
+
+                // Update ambient light with slower hue shifting (opposite phase for contrast)
+                const ambientHue = (time * 0.1) % (Math.PI * 2); // Even slower cycle
+                const ambientR = Math.sin(ambientHue + Math.PI) * 0.3 + 0.7; // Offset by 180 degrees
+                const ambientG = Math.sin(ambientHue + Math.PI + Math.PI * 2 / 3) * 0.3 + 0.7;
+                const ambientB = Math.sin(ambientHue + Math.PI + Math.PI * 4 / 3) * 0.3 + 0.7;
+                ambientLight.color.setRGB(ambientR, ambientG, ambientB);
 
                 // Update spikes container rotation to match sphere rotation
                 const rotationAngle = (time * rotationSpeed.value * Math.PI) / 180.0;
                 spikesContainer.rotation.y = rotationAngle;
+
+                // Update cylinder rotation on Z-axis
+                const cylinderRotation = time * cylinderRotationSpeed * 0.5; // Slower rotation
+                // Rotate cylinder around world Z (which is local Y in its default orientation)
+                cylinder.rotation.y = cylinderRotation;
+                cylinder.position.z = -25;
+
+                // Update cylinder material time for checkerboard animation
+                if (cylinder.material && cylinder.material.uniforms && cylinder.material.uniforms.time) {
+                    cylinder.material.uniforms.time.value = time;
+                }
 
                 // Update spike positions based on audio (extend outward instead of scaling)
                 bassSpikes.forEach((spike, i) => {
@@ -1336,6 +1706,12 @@
                 const value = parseFloat(e.target.value);
                 specularity.value = value;
                 specularityValue.textContent = value.toFixed(2);
+            });
+
+            // Shadow quality control
+            const shadowQualitySelect = document.getElementById('shadowQualitySelect');
+            shadowQualitySelect.addEventListener('change', (e) => {
+                updateShadowQuality(e.target.value);
             });
 
             // Initialize display values
