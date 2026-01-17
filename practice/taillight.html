@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mustang Taillight - Interactive Depth Map</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: Arial, sans-serif;
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GUI } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/lil-gui.module.min.js';
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.getElementById('container').appendChild(renderer.domElement);
+
+        // Camera initial position
+        const cameraDistance = 5;
+        const cameraHeight = 0;
+        let cameraAngle = 0;
+        let cameraElevation = 0;
+
+        // Mouse tracking
+        let mouseX = 0;
+        let mouseY = 0;
+        const mouseSensitivity = 0.5;
+
+        // Load textures
+        const textureLoader = new THREE.TextureLoader();
+        const diffuseTexture = textureLoader.load('./media/mustang.png');
+        const depthTexture = textureLoader.load('./media/mustang-depth.png');
+
+        // Create plane geometry
+        const planeGeometry = new THREE.PlaneGeometry(4, 4, 256, 256);
+        
+        // Create shader material with displacement
+        const material = new THREE.MeshStandardMaterial({
+            map: diffuseTexture,
+            displacementMap: depthTexture,
+            displacementScale: 0.2,
+            normalMap: depthTexture,
+            normalScale: new THREE.Vector2(1, 1)
+        });
+
+        const plane = new THREE.Mesh(planeGeometry, material);
+        plane.rotation.x = 0;
+        scene.add(plane);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 10, 5);
+        scene.add(directionalLight);
+
+        // GUI Controls
+        const gui = new GUI();
+        const params = {
+            depthIntensity: 0.2,
+            normalIntensity: 1.0
+        };
+
+        gui.add(params, 'depthIntensity', 0, 1).onChange((value) => {
+            material.displacementScale = value;
+        });
+
+        gui.add(params, 'normalIntensity', 0, 2).onChange((value) => {
+            material.normalScale.set(value, value);
+        });
+
+        // Mouse movement tracking
+        document.addEventListener('mousemove', (event) => {
+            // Normalize mouse position to -1 to 1 range
+            mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseY = (event.clientY / window.innerHeight) * 2 - 1;
+        });
+
+        // Update camera position based on mouse
+        function updateCamera() {
+            // Subtle orbit based on mouse position
+            cameraAngle = mouseX * Math.PI * 0.3; // Max 30% of full rotation
+            cameraElevation = mouseY * Math.PI * 0.2; // Max 20% elevation
+
+            const x = Math.sin(cameraAngle) * cameraDistance;
+            const z = Math.cos(cameraAngle) * cameraDistance;
+            const y = cameraHeight + Math.sin(cameraElevation) * 2;
+
+            camera.position.set(x, y, z);
+            camera.lookAt(0, 0, 0);
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            updateCamera();
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
