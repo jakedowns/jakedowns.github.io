@@ -34,6 +34,9 @@
         import * as THREE from 'three';
         import { GUI } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/lil-gui.module.min.js';
 
+        // Constants
+        const DEFAULT_CAMERA_DISTANCE = 3;
+
         // Scene setup
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -43,7 +46,7 @@
         document.getElementById('container').appendChild(renderer.domElement);
 
         // Camera initial position
-        const cameraDistance = 5;
+        let cameraDistance = DEFAULT_CAMERA_DISTANCE;
         const cameraHeight = 0;
         let cameraAngle = 0;
         let cameraElevation = 0;
@@ -57,22 +60,311 @@
         const textureLoader = new THREE.TextureLoader();
         const diffuseTexture = textureLoader.load('./media/mustang.png');
         const depthTexture = textureLoader.load('./media/mustang-depth.png');
+        const emissiveTexture = textureLoader.load('./media/mustang-emmissive.png');
 
-        // Create plane geometry
-        const planeGeometry = new THREE.PlaneGeometry(4, 4, 256, 256);
+        // Create plane geometry - matching image aspect ratio (2816 × 1536)
+        const imageAspect = 2816 / 1536;
+        const planeWidth = 4;
+        const planeHeight = planeWidth / imageAspect;
+        const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight, 256, 256);
         
         // Create shader material with displacement
         const material = new THREE.MeshStandardMaterial({
             map: diffuseTexture,
             displacementMap: depthTexture,
-            displacementScale: 0.2,
+            displacementScale: 0.96,
             normalMap: depthTexture,
-            normalScale: new THREE.Vector2(1, 1)
+            normalScale: new THREE.Vector2(1, 1),
+            emissiveMap: emissiveTexture,
+            emissive: new THREE.Color(0xff0000),
+            emissiveIntensity: 1.0
         });
 
         const plane = new THREE.Mesh(planeGeometry, material);
         plane.rotation.x = 0;
         scene.add(plane);
+
+        // Smoke shader material
+        const smokeVertexShader = `
+            varying vec3 vWorldPosition;
+            varying vec3 vNormal;
+            varying vec2 vUv;
+            
+            void main() {
+                vUv = uv;
+                vNormal = normalize(normalMatrix * normal);
+                vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                vWorldPosition = worldPosition.xyz;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+
+        const smokeFragmentShader = `
+            uniform float time;
+            uniform sampler2D emissiveMap;
+            uniform float emissiveIntensity;
+            uniform vec3 emissiveColor;
+            uniform bool debugMode;
+            uniform float noiseScale;
+            uniform float noisePhase;
+            uniform int noiseOctaves;
+            uniform float minAlpha;
+            uniform float maxAlpha;
+            uniform float contrast;
+            uniform vec2 noiseOffset;
+            uniform vec3 smokeColor;
+            // uniform vec3 cameraPosition;
+            uniform mat4 modelViewMatrix;
+            uniform mat4 projectionMatrix;
+            uniform float scrollSpeedY;
+            uniform float phaseSpeed;
+            uniform float smokeDepth;
+            
+            varying vec3 vWorldPosition;
+            varying vec3 vNormal;
+            varying vec2 vUv;
+            
+            // Noise function
+            float hash(float n) {
+                return fract(sin(n) * 43758.5453);
+            }
+            
+            float noise(vec3 p) {
+                vec3 i = floor(p);
+                vec3 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                
+                float n = i.x + i.y * 57.0 + 113.0 * i.z;
+                return mix(
+                    mix(mix(hash(n + 0.0), hash(n + 1.0), f.x),
+                        mix(hash(n + 57.0), hash(n + 58.0), f.x), f.y),
+                    mix(mix(hash(n + 113.0), hash(n + 114.0), f.x),
+                        mix(hash(n + 170.0), hash(n + 171.0), f.x), f.y), f.z);
+            }
+            
+            // 4D noise function for volumetric clouds
+            float noise4D(vec4 p) {
+                vec4 i = floor(p);
+                vec4 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                
+                float n = i.x + i.y * 57.0 + 113.0 * i.z + 170.0 * i.w;
+                return mix(
+                    mix(mix(mix(hash(n + 0.0), hash(n + 1.0), f.x),
+                            mix(hash(n + 57.0), hash(n + 58.0), f.x), f.y),
+                        mix(mix(hash(n + 113.0), hash(n + 114.0), f.x),
+                            mix(hash(n + 170.0), hash(n + 171.0), f.x), f.y), f.z),
+                    mix(mix(mix(hash(n + 226.0), hash(n + 227.0), f.x),
+                            mix(hash(n + 283.0), hash(n + 284.0), f.x), f.y),
+                        mix(mix(hash(n + 339.0), hash(n + 340.0), f.x),
+                            mix(hash(n + 396.0), hash(n + 397.0), f.x), f.y), f.z), f.w);
+            }
+            
+            // Configurable FBM
+            float fbm(vec3 p, int octaves) {
+                float value = 0.0;
+                float amplitude = 0.5;
+                for (int i = 0; i < 8; i++) {
+                    if (i >= octaves) break;
+                    value += amplitude * noise(p);
+                    p *= 2.0;
+                    amplitude *= 0.5;
+                }
+                return value;
+            }
+
+            // Configurable 4D FBM
+            float fbm4D(vec4 p, int octaves) {
+                float value = 0.0;
+                float amplitude = 0.5;
+                for (int i = 0; i < 8; i++) {
+                    if (i >= octaves) break;
+                    value += amplitude * noise4D(p);
+                    p *= 2.0;
+                    amplitude *= 0.5;
+                }
+                return value;
+            }
+            
+            // Simple 4D noise-based density
+            float smokeDensity(vec2 uv) {
+                // Apply offset to UV coordinates
+                vec2 p = uv + noiseOffset;
+
+                // Create 4D position for time-varying noise
+                vec4 noisePos = vec4(p * noiseScale, time * 0.5 + noisePhase, p.x * 0.1);
+
+                // Generate density using 4D FBM
+                float density = fbm4D(noisePos, noiseOctaves);
+
+                // Remap to 0-1 range and create cloud-like structure
+                density = (density + 1.0) * 0.5;
+
+                // Create vertical gradient (denser at bottom, fading at top)
+                float heightFade = 1.0 - smoothstep(0.0, 1.0, uv.y);
+                density *= heightFade;
+
+                // Add some horizontal variation
+                float horizontalVariation = sin(uv.x * 6.28) * 0.2 + 0.8;
+                density *= horizontalVariation;
+
+                return density;
+            }
+            
+            // Get density at 3D world position for ray-marching
+            float getVolumeDensity(vec3 worldPos) {
+                // Convert world position to UV-like coordinates
+                // Plane is centered at origin, so map from [-2,2] and [-1.09,1.09] to [0,1]
+                vec2 uv = vec2(
+                    (worldPos.x + 2.0) / 4.0,      // Map X from [-2,2] to [0,1]
+                    (worldPos.y + 1.09) / 2.18      // Map Y from [-1.09,1.09] to [0,1]
+                );
+
+                // Skip if outside bounds
+                if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+                    return 0.0;
+                }
+
+                // Apply Y scrolling over time
+                uv.y += time * scrollSpeedY * 0.1;
+
+                // Apply noise offset
+                uv += noiseOffset;
+
+                // Create 4D position for volumetric noise with separate phase speed
+                vec4 noisePos = vec4(uv * noiseScale, time * phaseSpeed * 0.5 + noisePhase, worldPos.z * 0.1);
+
+                // Generate density using 4D FBM
+                float density = fbm4D(noisePos, noiseOctaves);
+
+                // Remap to 0-1 range
+                density = (density + 1.0) * 0.5;
+
+                // Create vertical gradient (denser at bottom, fading at top)
+                float heightFade = 1.0 - smoothstep(0.0, 1.0, uv.y);
+                density *= heightFade;
+
+                // Add some horizontal variation
+                float horizontalVariation = sin(uv.x * 6.28) * 0.2 + 0.8;
+                density *= horizontalVariation;
+
+                return density;
+            }
+
+            void main() {
+                // Debug mode: solid red
+                if (debugMode) {
+                    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+                    return;
+                }
+
+                // Ray-marching setup
+                vec3 rayOrigin = cameraPosition;
+                vec3 rayDir = normalize(vWorldPosition - cameraPosition);
+
+                // Define volume bounds (plane is at Z=0.5, volume extends some distance)
+                float nearPlane = 0.0;
+                float farPlane = smokeDepth;
+
+                // Find ray-plane intersection
+                float t = (0.5 - rayOrigin.z) / rayDir.z;
+                if (t < 0.0) t = 0.0; // Behind camera
+
+                vec3 entryPoint = rayOrigin + rayDir * max(t, nearPlane);
+
+                // March through volume
+                const int maxSteps = 64;
+                const float stepSize = 0.05;
+                float totalDensity = 0.0;
+                vec3 accumulatedLight = vec3(0.0);
+
+                vec3 currentPos = entryPoint;
+                float totalDistance = 0.0;
+
+                for (int i = 0; i < maxSteps; i++) {
+                    if (totalDistance > farPlane - nearPlane) break;
+
+                    float density = getVolumeDensity(currentPos);
+
+                    if (density > 0.0) {
+                        // Apply contrast
+                        float alpha = pow(density, contrast);
+
+                        // Only apply min/max alpha where density > 0
+                        if (density > 0.0) {
+                            alpha = clamp(alpha, minAlpha, maxAlpha);
+                        } else {
+                            alpha = 0.0;
+                        }
+
+                        // Sample emissive map for lighting (based on UV coordinates)
+                        vec2 uv = vec2(
+                            (currentPos.x + 2.0) / 4.0,
+                            (currentPos.y + 1.09) / 2.18
+                        );
+                        vec3 emissive = texture2D(emissiveMap, uv).rgb * emissiveColor * emissiveIntensity;
+
+                        // Light transmission through accumulated density
+                        float lightTransmission = exp(-totalDensity * 2.0);
+                        vec3 transmittedEmissive = emissive * lightTransmission;
+
+                        // Add to accumulated light and density
+                        accumulatedLight += transmittedEmissive * alpha * stepSize;
+                        totalDensity += density * alpha * stepSize;
+                    }
+
+                    currentPos += rayDir * stepSize;
+                    totalDistance += stepSize;
+                }
+
+                // Calculate final color
+                vec3 baseSmokeColor = smokeColor;
+
+                // Add volumetric lighting
+                baseSmokeColor += accumulatedLight;
+
+                // Apply overall opacity based on accumulated density
+                float finalAlpha = clamp(totalDensity * 2.0, 0.0, 0.95);
+
+                gl_FragColor = vec4(baseSmokeColor, finalAlpha);
+            }
+        `;
+
+        // Create smoke plane with optimized grid resolution for fluid sim
+        // Higher resolution for better grid-based simulation, but not too high for performance
+        const smokeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight, 64, 64);
+        const smokeMaterial = new THREE.ShaderMaterial({
+            vertexShader: smokeVertexShader,
+            fragmentShader: smokeFragmentShader,
+            uniforms: {
+                time: { value: 0 },
+                emissiveMap: { value: emissiveTexture },
+                emissiveIntensity: { value: 1.0 },
+                emissiveColor: { value: new THREE.Color(0xff0000) },
+                debugMode: { value: false },
+                noiseScale: { value: 50.0 },
+                noisePhase: { value: 0.0 },
+                noiseOctaves: { value: 1 },
+                minAlpha: { value: 0.0 },
+                maxAlpha: { value: 1.0 },
+                contrast: { value: 2.0 },
+                noiseOffset: { value: new THREE.Vector2(0, 0) },
+                smokeColor: { value: new THREE.Color(0.12, 0.12, 0.18) },
+                cameraPosition: { value: new THREE.Vector3() },
+                scrollSpeedY: { value: 1.0 },
+                phaseSpeed: { value: 1.0 },
+                smokeDepth: { value: 3.0 }
+            },
+            transparent: true,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+
+        const smokePlane = new THREE.Mesh(smokeGeometry, smokeMaterial);
+        smokePlane.rotation.x = 0;
+        smokePlane.position.z = 0.5; // Between camera and car plane, close to car
+        scene.add(smokePlane);
 
         // Lighting
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -85,9 +377,31 @@
         // GUI Controls
         const gui = new GUI();
         const params = {
-            depthIntensity: 0.2,
-            normalIntensity: 1.0
+            zoom: 1.5,
+            depthIntensity: 0.99,
+            normalIntensity: 1.0,
+            emissiveStrength: 3.0,
+            smokeDebug: false,
+            noiseScale: 3.0,
+            noisePhase: 0.0,
+            noiseOctaves: 4,
+            minAlpha: 0.0,
+            maxAlpha: 1.0,
+            contrast: 2.0,
+            noiseOffsetX: 0.0,
+            noiseOffsetY: 0.0,
+            smokeColorR: 0.12,
+            smokeColorG: 0.12,
+            smokeColorB: 0.18,
+            scrollSpeedY: 1.0,
+            phaseSpeed: 1.0,
+            smokePlaneZ: 0.5,
+            smokeDepth: 3.0
         };
+
+        gui.add(params, 'zoom', 0.5, 50).onChange((value) => {
+            cameraDistance = value;
+        });
 
         gui.add(params, 'depthIntensity', 0, 1).onChange((value) => {
             material.displacementScale = value;
@@ -97,6 +411,61 @@
             material.normalScale.set(value, value);
         });
 
+        gui.add(params, 'emissiveStrength', 0, 5).onChange((value) => {
+            material.emissiveIntensity = value;
+            smokeMaterial.uniforms.emissiveIntensity.value = value;
+        });
+
+        const smokeFolder = gui.addFolder('Smoke');
+        smokeFolder.add(params, 'smokeDebug').onChange((value) => {
+            smokeMaterial.uniforms.debugMode.value = value;
+        });
+        smokeFolder.add(params, 'noiseScale', 0.1, 100).onChange((value) => {
+            smokeMaterial.uniforms.noiseScale.value = value;
+        });
+        smokeFolder.add(params, 'noisePhase', -10, 10).onChange((value) => {
+            smokeMaterial.uniforms.noisePhase.value = value;
+        });
+        smokeFolder.add(params, 'noiseOctaves', 1, 8).step(1).onChange((value) => {
+            smokeMaterial.uniforms.noiseOctaves.value = value;
+        });
+        smokeFolder.add(params, 'minAlpha', 0.0, 1.0).step(0.01).onChange((value) => {
+            smokeMaterial.uniforms.minAlpha.value = value;
+        });
+        smokeFolder.add(params, 'maxAlpha', 0.0, 1.0).step(0.01).onChange((value) => {
+            smokeMaterial.uniforms.maxAlpha.value = value;
+        });
+        smokeFolder.add(params, 'contrast', 0.1, 5.0).step(0.1).onChange((value) => {
+            smokeMaterial.uniforms.contrast.value = value;
+        });
+        smokeFolder.add(params, 'noiseOffsetX', -2.0, 2.0).step(0.01).onChange((value) => {
+            smokeMaterial.uniforms.noiseOffset.value.x = value;
+        });
+        smokeFolder.add(params, 'noiseOffsetY', -2.0, 2.0).step(0.01).onChange((value) => {
+            smokeMaterial.uniforms.noiseOffset.value.y = value;
+        });
+        smokeFolder.add(params, 'smokeColorR', 0.0, 1.0).step(0.01).name('Smoke Color R').onChange((value) => {
+            smokeMaterial.uniforms.smokeColor.value.setRGB(params.smokeColorR, params.smokeColorG, params.smokeColorB);
+        });
+        smokeFolder.add(params, 'smokeColorG', 0.0, 1.0).step(0.01).name('Smoke Color G').onChange((value) => {
+            smokeMaterial.uniforms.smokeColor.value.setRGB(params.smokeColorR, params.smokeColorG, params.smokeColorB);
+        });
+        smokeFolder.add(params, 'smokeColorB', 0.0, 1.0).step(0.01).name('Smoke Color B').onChange((value) => {
+            smokeMaterial.uniforms.smokeColor.value.setRGB(params.smokeColorR, params.smokeColorG, params.smokeColorB);
+        });
+        smokeFolder.add(params, 'scrollSpeedY', -5.0, 5.0).step(0.1).name('Y Scroll Speed').onChange((value) => {
+            smokeMaterial.uniforms.scrollSpeedY.value = value;
+        });
+        smokeFolder.add(params, 'phaseSpeed', -5.0, 5.0).step(0.1).name('Phase Speed').onChange((value) => {
+            smokeMaterial.uniforms.phaseSpeed.value = value;
+        });
+        smokeFolder.add(params, 'smokePlaneZ', -2.0, 2.0).step(0.01).name('Smoke Plane Z').onChange((value) => {
+            smokePlane.position.z = value;
+        });
+        smokeFolder.add(params, 'smokeDepth', 0.1, 10.0).step(0.1).name('Smoke Depth').onChange((value) => {
+            smokeMaterial.uniforms.smokeDepth.value = value;
+        });
+
         // Mouse movement tracking
         document.addEventListener('mousemove', (event) => {
             // Normalize mouse position to -1 to 1 range
@@ -104,11 +473,21 @@
             mouseY = (event.clientY / window.innerHeight) * 2 - 1;
         });
 
+        // Mouse wheel control for camera distance
+        document.addEventListener('wheel', (event) => {
+            event.preventDefault();
+            // Zoom in/out based on wheel delta (negative = zoom in, positive = zoom out)
+            const zoomSpeed = 0.5;
+            cameraDistance += event.deltaY * 0.001 * zoomSpeed;
+            // Clamp to reasonable bounds
+            cameraDistance = Math.max(0.5, Math.min(50, cameraDistance));
+        });
+
         // Update camera position based on mouse
         function updateCamera() {
             // Subtle orbit based on mouse position
             cameraAngle = mouseX * Math.PI * 0.3; // Max 30% of full rotation
-            cameraElevation = mouseY * Math.PI * 0.2; // Max 20% elevation
+            cameraElevation = -mouseY * Math.PI * 0.2; // Max 20% elevation
 
             const x = Math.sin(cameraAngle) * cameraDistance;
             const z = Math.cos(cameraAngle) * cameraDistance;
@@ -119,8 +498,12 @@
         }
 
         // Animation loop
+        let time = 0;
         function animate() {
             requestAnimationFrame(animate);
+            time += 0.01;
+            smokeMaterial.uniforms.time.value = time;
+            smokeMaterial.uniforms.cameraPosition.value.copy(camera.position);
             updateCamera();
             renderer.render(scene, camera);
         }
