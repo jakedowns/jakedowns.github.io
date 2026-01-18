@@ -104,6 +104,8 @@
             uniform sampler2D emissiveMap;
             uniform float emissiveIntensity;
             uniform vec3 emissiveColor;
+            uniform sampler2D depthMap;
+            uniform float displacementScale;
             uniform bool debugMode;
             uniform float noiseScale;
             uniform float noisePhase;
@@ -248,6 +250,19 @@
                 float horizontalVariation = sin(uv.x * 6.28) * 0.2 + 0.8;
                 density *= horizontalVariation;
 
+                // Sample depth texture to cut out smoke where car geometry protrudes
+                float depthValue = texture2D(depthMap, uv).r; // Red channel contains depth
+                float cutoffThreshold = 0.1; // Adjust this to control how much geometry cuts through smoke
+
+                // If depth displacement is significant, reduce smoke density
+                // Higher depth values = more outward displacement = more geometry protrusion
+                if (depthValue > cutoffThreshold) {
+                    // Reduce density based on depth - more protrusion = less smoke
+                    float protrusionFactor = (depthValue - cutoffThreshold) / (1.0 - cutoffThreshold);
+                    density *= (1.0 - protrusionFactor * displacementScale * 0.5);
+                    density = max(0.0, density); // Ensure density doesn't go negative
+                }
+
                 return density;
             }
 
@@ -339,8 +354,10 @@
             uniforms: {
                 time: { value: 0 },
                 emissiveMap: { value: emissiveTexture },
+                depthMap: { value: depthTexture },
                 emissiveIntensity: { value: 1.0 },
                 emissiveColor: { value: new THREE.Color(0xff0000) },
+                displacementScale: { value: 0.96 },
                 debugMode: { value: false },
                 noiseScale: { value: 50.0 },
                 noisePhase: { value: 0.0 },
@@ -357,13 +374,13 @@
             },
             transparent: true,
             side: THREE.DoubleSide,
-            blending: THREE.AdditiveBlending,
+            blending: THREE.NormalBlending,
             depthWrite: false
         });
 
         const smokePlane = new THREE.Mesh(smokeGeometry, smokeMaterial);
         smokePlane.rotation.x = 0;
-        smokePlane.position.z = 0.5; // Between camera and car plane, close to car
+        smokePlane.position.z = 1.0; // Between camera and car plane, close to car
         scene.add(smokePlane);
 
         // Lighting
@@ -405,6 +422,7 @@
 
         gui.add(params, 'depthIntensity', 0, 1).onChange((value) => {
             material.displacementScale = value;
+            smokeMaterial.uniforms.displacementScale.value = value;
         });
 
         gui.add(params, 'normalIntensity', 0, 2).onChange((value) => {
@@ -462,7 +480,7 @@
         smokeFolder.add(params, 'smokePlaneZ', -2.0, 2.0).step(0.01).name('Smoke Plane Z').onChange((value) => {
             smokePlane.position.z = value;
         });
-        smokeFolder.add(params, 'smokeDepth', 0.1, 10.0).step(0.1).name('Smoke Depth').onChange((value) => {
+        smokeFolder.add(params, 'smokeDepth', -10.0, 10.0).step(0.1).name('Smoke Depth').onChange((value) => {
             smokeMaterial.uniforms.smokeDepth.value = value;
         });
 

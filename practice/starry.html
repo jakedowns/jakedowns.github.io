@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Starry Jelly Sphere</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: radial-gradient(ellipse at center,
+                #1a0033 0%,
+                #0d001a 50%,
+                #000000 100%);
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">Starry Jelly Sphere - Left click & drag to orbit camera, scroll to zoom. Mouse controls light. Independent auto-rotations</div>
+
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/RGBELoader.js"></script>
+
+    <!-- Post-processing -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+
+    <!-- ImGui -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
+
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000, 0);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        document.body.appendChild(renderer.domElement);
+
+        // Load HDRI environment map
+        const rgbeLoader = new THREE.RGBELoader();
+        rgbeLoader.load(
+            'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloppenheim_06_puresky_1k.hdr',
+            function(texture) {
+                texture.mapping = THREE.EquirectangularReflectionMapping;
+                scene.environment = texture;
+                // Keep custom gradient background instead of HDRI
+                // scene.background = texture;
+
+                // Update shader uniform
+                material.uniforms.uEnvironmentMap.value = texture;
+                console.log('HDRI loaded successfully');
+            },
+            function(progress) {
+                console.log('HDRI loading progress:', progress);
+            },
+            function(error) {
+                console.error('Error loading HDRI:', error);
+                // Create a simple cube texture as fallback
+                const cubeTexture = new THREE.CubeTexture([
+                    createSolidColorTexture(0x444444), // right
+                    createSolidColorTexture(0x444444), // left
+                    createSolidColorTexture(0x666666), // top
+                    createSolidColorTexture(0x222222), // bottom
+                    createSolidColorTexture(0x444444), // front
+                    createSolidColorTexture(0x444444)  // back
+                ]);
+                material.uniforms.uEnvironmentMap.value = cubeTexture;
+            }
+        );
+
+        // Fallback solid color texture
+        function createSolidColorTexture(color) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1;
+            canvas.height = 1;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+            ctx.fillRect(0, 0, 1, 1);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // Fallback gradient texture
+        function createGradientTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 512);
+            gradient.addColorStop(0, '#1a0033');
+            gradient.addColorStop(0.5, '#0d001a');
+            gradient.addColorStop(1, '#000000');
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 512, 512);
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // Post-processing setup
+        const composer = new THREE.EffectComposer(renderer);
+        const renderPass = new THREE.RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        // Bloom pass
+        const bloomPass = new THREE.UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            0.5, // strength
+            0.4, // radius
+            0.85 // threshold
+        );
+        composer.addPass(bloomPass);
+
+        // Sphere geometry
+        const geometry = new THREE.SphereGeometry(2, 64, 64);
+
+        // Shader material
+        const vertexShader = `
+            varying vec3 vNormal;
+            varying vec3 vPosition;
+            varying vec3 vWorldPosition;
+
+            void main() {
+                vNormal = normalize(normalMatrix * normal);
+                vPosition = position;
+                vec4 worldPos = modelMatrix * vec4(position, 1.0);
+                vWorldPosition = worldPos.xyz;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+
+        const fragmentShader = `
+            uniform float uTime;
+            uniform vec3 uJellyColor;
+            uniform float uOpacity;
+            uniform float uStarSize;
+            uniform float uStarDensity;
+            uniform float uStarMinDepth;
+            uniform float uStarMaxDepth;
+            uniform vec3 uStarBaseColor;
+            uniform float uStarHueVariation;
+            uniform float uFresnelPower;
+            uniform float uFresnelIntensity;
+            uniform float uDistortion;
+            uniform vec3 uLightPosition;
+            uniform vec3 uLightColor;
+            uniform float uLightIntensity;
+            uniform vec3 uRimColor;
+            uniform float uRimIntensity;
+            uniform float uAutoRotateSpeed;
+            uniform float uStarSizeVariance;
+            uniform float uStarFalloffIntensity;
+            uniform float uDepthFalloff;
+            uniform float uStarChromaticAberration;
+
+            uniform samplerCube uEnvironmentMap;
+            uniform float uReflectionIntensity;
+            uniform float uReflectionSpecularPower;
+
+            varying vec3 vNormal;
+            varying vec3 vPosition;
+            varying vec3 vWorldPosition;
+
+            // Simplex noise function
+            vec3 mod289(vec3 x) {
+                return x - floor(x * (1.0 / 289.0)) * 289.0;
+            }
+
+            vec4 mod289(vec4 x) {
+                return x - floor(x * (1.0 / 289.0)) * 289.0;
+            }
+
+            vec4 permute(vec4 x) {
+                return mod289(((x * 34.0) + 1.0) * x);
+            }
+
+            vec4 taylorInvSqrt(vec4 r) {
+                return 1.79284291400159 - 0.85373472095314 * r;
+            }
+
+            float snoise(vec3 v) {
+                const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+                const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+
+                vec3 i  = floor(v + dot(v, C.yyy));
+                vec3 x0 = v - i + dot(i, C.xxx);
+
+                vec3 g = step(x0.yzx, x0.xyz);
+                vec3 l = 1.0 - g;
+                vec3 i1 = min(g.xyz, l.zxy);
+                vec3 i2 = max(g.xyz, l.zxy);
+
+                vec3 x1 = x0 - i1 + C.xxx;
+                vec3 x2 = x0 - i2 + C.yyy;
+                vec3 x3 = x0 - D.yyy;
+
+                i = mod289(i);
+                vec4 p = permute(permute(permute(
+                    i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                    + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                    + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+
+                float n_ = 0.142857142857;
+                vec3 ns = n_ * D.wyz - D.xzx;
+
+                vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+
+                vec4 x_ = floor(j * ns.z);
+                vec4 y_ = floor(j - 7.0 * x_);
+
+                vec4 x = x_ * ns.x + ns.yyyy;
+                vec4 y = y_ * ns.x + ns.yyyy;
+                vec4 h = 1.0 - abs(x) - abs(y);
+
+                vec4 b0 = vec4(x.xy, y.xy);
+                vec4 b1 = vec4(x.zw, y.zw);
+
+                vec4 s0 = floor(b0) * 2.0 + 1.0;
+                vec4 s1 = floor(b1) * 2.0 + 1.0;
+                vec4 sh = -step(h, vec4(0.0));
+
+                vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+                vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+
+                vec3 p0 = vec3(a0.xy, h.x);
+                vec3 p1 = vec3(a0.zw, h.y);
+                vec3 p2 = vec3(a1.xy, h.z);
+                vec3 p3 = vec3(a1.zw, h.w);
+
+                vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+                p0 *= norm.x;
+                p1 *= norm.y;
+                p2 *= norm.z;
+                p3 *= norm.w;
+
+                vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+                m = m * m;
+                return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+            }
+
+            // Hash function for random star positions
+            float hash(vec3 p) {
+                p = fract(p * 0.3183099 + .1);
+                p *= 17.0;
+                return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+            }
+
+            // HSV to RGB conversion
+            vec3 hsv2rgb(vec3 c) {
+                vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+                vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+                return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+            }
+
+            // RGB to HSV conversion
+            vec3 rgb2hsv(vec3 c) {
+                vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+                vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+                vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+
+                float d = q.x - min(q.w, q.y);
+                float e = 1.0e-10;
+                return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+            }
+
+            // Star field function with parallax depth
+            vec3 starField(vec3 worldPos, vec3 viewDir, float density, float size, float minDepth, float maxDepth, vec3 baseColor, float hueVariation, float time, float sizeVariance, vec3 lightPos, vec3 cameraPos, vec3 jellyColor, float falloffIntensity) {
+                // Create parallax by considering camera ray through the sphere
+                vec3 rayOrigin = cameraPosition;
+                vec3 rayDir = normalize(worldPos - cameraPosition);
+
+                vec3 starColor = vec3(0.0);
+
+                // Sample along the view ray at different depths
+                for(int i = 0; i < 8; i++) {
+                    float t = minDepth + (float(i) / 7.0) * (maxDepth - minDepth); // Depth from minDepth to maxDepth
+                    vec3 samplePos = rayOrigin + rayDir * (length(worldPos - rayOrigin) - t);
+
+                    // Use position for consistent star placement
+                    vec3 p = samplePos * density * 0.5;
+
+                    // Get grid cell and local position
+                    vec3 gridPos = floor(p);
+                    vec3 localPos = fract(p);
+
+                    float starSeed = hash(gridPos);
+
+                    // Only show stars above threshold (controls density)
+                    if(starSeed > 0.6) {
+                        // Random star position within cell
+                        vec3 starOffset = vec3(
+                            hash(gridPos + 1.0) * 0.8 + 0.1,
+                            hash(gridPos + 2.0) * 0.8 + 0.1,
+                            hash(gridPos + 3.0) * 0.8 + 0.1
+                        );
+
+                        // Distance to star center in local space
+                        vec3 toStar = localPos - starOffset;
+                        float distToCenter = length(toStar);
+
+                        // Star size variance
+                        float sizeVariation = hash(gridPos + 7.0) * sizeVariance;
+                        float starSize = size * (1.0 + sizeVariation);
+
+                        // Feathered edge instead of hard clipping
+                        float edgeFade = 1.0 - smoothstep(starSize * 1.5, starSize * 2.0, distToCenter);
+                        if(edgeFade > 0.001) {
+
+                            // Varying pointed-ness: some stars have 8 points, some have 4
+                            float pointednessSeed = hash(gridPos + 4.0);
+                            bool eightPointed = pointednessSeed > 0.7;
+
+                            // Create cross pattern (Hubble diffraction spikes)
+                            float cross = 0.0;
+
+                            // Horizontal and vertical lines (always present)
+                            float hLine = smoothstep(starSize * 0.15, starSize * 0.08, abs(toStar.y)) *
+                                       smoothstep(starSize * 3.0, starSize * 1.5, abs(toStar.x));
+                            float vLine = smoothstep(starSize * 0.15, starSize * 0.08, abs(toStar.x)) *
+                                       smoothstep(starSize * 3.0, starSize * 1.5, abs(toStar.y));
+
+                            // Diagonal lines for 4-pointed cross (always present)
+                            float d1 = smoothstep(starSize * 0.15, starSize * 0.08, abs(toStar.x - toStar.y)) *
+                                     smoothstep(starSize * 3.0, starSize * 1.5, abs(toStar.x + toStar.y));
+                            float d2 = smoothstep(starSize * 0.15, starSize * 0.08, abs(toStar.x + toStar.y)) *
+                                     smoothstep(starSize * 3.0, starSize * 1.5, abs(toStar.x - toStar.y));
+
+                            cross = max(max(hLine, vLine), max(d1, d2));
+
+                            // Add extra diagonals for 8-pointed stars
+                            if(eightPointed) {
+                                // Additional 45-degree diagonals
+                                float d3 = smoothstep(starSize * 0.12, starSize * 0.06, abs(toStar.x * 0.707 - toStar.y * 0.707)) *
+                                         smoothstep(starSize * 2.5, starSize * 1.2, abs(toStar.x * 0.707 + toStar.y * 0.707));
+                                float d4 = smoothstep(starSize * 0.12, starSize * 0.06, abs(toStar.x * 0.707 + toStar.y * 0.707)) *
+                                         smoothstep(starSize * 2.5, starSize * 1.2, abs(toStar.x * 0.707 - toStar.y * 0.707));
+                                cross = max(cross, max(d3, d4));
+                            }
+
+                            // Bright center
+                            float center = 1.0 - smoothstep(0.0, starSize * 0.5, distToCenter);
+
+                            // Glitter effect: bright sparkles when star normal aligns with light/camera
+                            vec3 starWorldPos = samplePos; // Position of this star in world space
+                            vec3 starNormal = normalize(starWorldPos); // Star "normal" pointing outward from sphere center
+                            vec3 toLight = normalize(lightPos - starWorldPos);
+                            vec3 toCamera = normalize(cameraPos - starWorldPos);
+
+                            // Glitter when star faces both light and camera
+                            float lightAlignment = max(dot(starNormal, toLight), 0.0);
+                            float cameraAlignment = max(dot(starNormal, toCamera), 0.0);
+                            float glitter = pow(lightAlignment * cameraAlignment, 16.0) * 2.0;
+
+                            // Varying brightness based on star seed
+                            float brightness = 1.0 + hash(gridPos + 5.0) * 2.0; // 1.0 to 3.0 range for brighter stars
+
+                            // Depth-based falloff with fog effect (deeper = more jelly-colored)
+                            float depthRange = maxDepth - minDepth;
+                            float normalizedDepth = depthRange > 0.0 ? (t - minDepth) / depthRange : 0.0;
+                            float fogAmount = normalizedDepth * abs(uStarFalloffIntensity);
+                            fogAmount = clamp(fogAmount, 0.0, 1.0);
+
+                            float starIntensity = (max(cross, center) + glitter) * uDepthFalloff * brightness * edgeFade;
+
+                            // Individual star color with hue variation
+                            vec3 baseHSV = rgb2hsv(baseColor);
+                            vec3 starHSV = baseHSV;
+
+                            // Add hue variation based on star position and time
+                            float hueShift = sin(gridPos.x * 0.1 + gridPos.y * 0.15 + gridPos.z * 0.12 + time * 0.5) * hueVariation;
+                            starHSV.x = fract(starHSV.x + hueShift);
+
+                            // Boost saturation for more visible colors
+                            starHSV.y = max(starHSV.y, 0.7); // Ensure minimum saturation
+
+                            // Adjust brightness based on individual star brightness
+                            starHSV.z *= brightness * 0.3 + 0.7; // Better brightness scaling
+
+                            vec3 starColorHsv = hsv2rgb(starHSV);
+                            // Apply fog effect: blend towards jelly color based on depth
+                            vec3 finalStarColor = mix(starColorHsv, jellyColor, fogAmount);
+
+                            // Chromatic aberration: separate RGB channels based on distance from star center
+                            vec3 chromaticColor = finalStarColor;
+                            if (uStarChromaticAberration > 0.0) {
+                                float aberration = distToCenter / starSize * uStarChromaticAberration;
+                                chromaticColor.r = mix(finalStarColor.r, finalStarColor.r * 0.8, aberration * 0.5);
+                                chromaticColor.g = mix(finalStarColor.g, finalStarColor.g * 1.0, aberration * 0.2);
+                                chromaticColor.b = mix(finalStarColor.b, finalStarColor.b * 1.2, aberration * 0.3);
+                            }
+
+                            vec3 individualStarColor = chromaticColor * starIntensity;
+
+                            starColor += individualStarColor;
+                        }
+                    }
+                }
+
+                return starColor;
+            }
+
+            void main() {
+                vec3 normal = normalize(vNormal);
+
+                // View direction in view space for proper fresnel calculation
+                vec3 viewDirection = normalize((viewMatrix * vec4(cameraPosition - vWorldPosition, 0.0)).xyz);
+
+                // Fresnel effect (properly calculated in view space)
+                float fresnel = pow(1.0 - dot(viewDirection, normal), uFresnelPower);
+                fresnel = clamp(fresnel, 0.0, 1.0);
+
+                // Jelly distortion
+                vec3 distortedNormal = normal + snoise(vWorldPosition * uDistortion + uTime * 0.5) * 0.1;
+                distortedNormal = normalize(distortedNormal);
+
+                // Star field with parallax depth effect
+                vec3 worldViewDir = normalize(cameraPosition - vWorldPosition);
+                vec3 starColorRaw = starField(vWorldPosition, worldViewDir, uStarDensity, uStarSize, uStarMinDepth, uStarMaxDepth, uStarBaseColor, uStarHueVariation, uTime, uStarSizeVariance, uLightPosition, cameraPosition, uJellyColor, uStarFalloffIntensity);
+
+                // Embedded effect: stars are more visible when viewing through the material
+                float embeddedEffect = pow(fresnel + 0.3, 0.5); // More visible at edges and through material
+                float subsurfaceScatter = pow(1.0 - abs(dot(viewDirection, normal)), 2.0);
+
+                // Combine effects for embedded appearance
+                float starVisibility = embeddedEffect + subsurfaceScatter * 0.5;
+                vec3 starColor = starColorRaw * starVisibility * 2.0; // Boost star brightness
+
+                // Rim lighting
+                float rim = 1.0 - dot(viewDirection, distortedNormal);
+                rim = pow(rim, 2.0);
+                vec3 rimColor = uRimColor * uRimIntensity * rim;
+
+                // Specular highlight using actual scene lighting (Blinn-Phong)
+                vec3 lightDir = normalize(uLightPosition - vWorldPosition);
+                vec3 halfVector = normalize(lightDir + viewDirection);
+                float specular = pow(max(dot(distortedNormal, halfVector), 0.0), 32.0);
+                vec3 specularColor = uLightColor * specular * uLightIntensity;
+
+                // Clear coat HDRI reflection (specular highlight style)
+                vec3 reflectionColor = vec3(0.0);
+                if (uReflectionIntensity > 0.0) {
+                    vec3 reflectDir = reflect(-viewDirection, distortedNormal);
+                    vec3 envReflection = textureCube(uEnvironmentMap, reflectDir).rgb;
+
+                    // Fresnel for clear coat effect
+                    float fresnel = pow(1.0 - dot(viewDirection, distortedNormal), 2.0);
+
+                    // Specular falloff based on reflection direction alignment with view
+                    float specularFalloff = pow(max(dot(viewDirection, reflectDir), 0.0), uReflectionSpecularPower);
+
+                    reflectionColor = envReflection * uReflectionIntensity * fresnel * specularFalloff;
+                }
+
+                // Combine jelly color with stars
+                vec3 jellyBase = uJellyColor;
+                vec3 finalColor = jellyBase + starColor; // Additive blending for brighter stars
+
+                // Add fresnel highlight
+                finalColor += fresnel * uFresnelIntensity;
+
+                // Add specular highlight
+                finalColor += specularColor;
+
+                // Add environment reflection
+                finalColor += reflectionColor;
+
+                // Add rim lighting
+                finalColor += rimColor;
+
+                // Apply opacity
+                gl_FragColor = vec4(finalColor, uOpacity);
+            }
+        `;
+
+        const material = new THREE.ShaderMaterial({
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            uniforms: {
+                uTime: { value: 0 },
+                uJellyColor: { value: new THREE.Color(0x4a148c) }, // Purple jelly
+                uOpacity: { value: 0.8 },
+                uStarSize: { value: 0.08 },
+                uStarDensity: { value: 3.0 },
+                uStarMinDepth: { value: 0.1 },
+                uStarMaxDepth: { value: 1.0 },
+                uStarBaseColor: { value: new THREE.Color(0xffaa44) }, // Warm orange base
+                uStarHueVariation: { value: 0.3 },
+                uFresnelPower: { value: 3.0 },
+                uFresnelIntensity: { value: 0.3 },
+                uDistortion: { value: 2.0 },
+                uLightPosition: { value: new THREE.Vector3(0, 0, 3) },
+                uLightColor: { value: new THREE.Color(0xffffff) },
+                uLightIntensity: { value: 1.0 },
+                uRimColor: { value: new THREE.Color(0xffffff) },
+                uRimIntensity: { value: 0.5 },
+                uAutoRotateSpeed: { value: 0.005 },
+                uStarSizeVariance: { value: 0.5 },
+                uStarFalloffIntensity: { value: 0.7 },
+                uDepthFalloff: { value: 1.0 },
+                uStarChromaticAberration: { value: 0.0 },
+                uJellyColor: { value: new THREE.Color(0x4a148c) },
+                uEnvironmentMap: { value: new THREE.CubeTexture() }, // Placeholder
+                uReflectionIntensity: { value: 0.3 },
+                uReflectionSpecularPower: { value: 64.0 }
+            },
+            transparent: true,
+            side: THREE.DoubleSide
+        });
+
+        const sphere = new THREE.Mesh(geometry, material);
+        scene.add(sphere);
+
+        // Point light that follows mouse
+        const pointLight = new THREE.PointLight(0xffffff, 1.0, 10);
+        pointLight.position.set(0, 0, 3);
+        scene.add(pointLight);
+
+        camera.position.set(0, 0, 5);
+
+        // Orbit controls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.enableZoom = true;
+        controls.enablePan = false; // Disable pan for better focus on the sphere
+        controls.minDistance = 3;
+        controls.maxDistance = 10;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.5;
+
+        // Mouse tracking for point light
+        const mouse = new THREE.Vector2();
+        const mouseWorld = new THREE.Vector3();
+
+        function updateMousePosition(event) {
+            // Convert screen coordinates to normalized device coordinates (-1 to 1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Convert to world coordinates at the sphere's distance
+            mouseWorld.set(mouse.x * 3, mouse.y * 3, 2);
+            pointLight.position.copy(mouseWorld);
+        }
+
+        // Mouse move event
+        window.addEventListener('mousemove', updateMousePosition);
+
+        // Initial mouse position
+        updateMousePosition({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 });
+
+        // GUI Controls
+        const gui = new dat.GUI();
+
+        // Lighting controls folder
+        const lightingFolder = gui.addFolder('Lighting');
+        lightingFolder.add(pointLight, 'intensity', 0, 5).name('Light Intensity');
+        lightingFolder.addColor(pointLight, 'color').name('Light Color');
+        lightingFolder.open();
+
+        // Camera controls folder
+        const cameraFolder = gui.addFolder('Camera');
+        cameraFolder.add(controls, 'autoRotate').name('Camera Auto Rotate');
+        cameraFolder.add(controls, 'autoRotateSpeed', 0, 2).name('Camera Rotate Speed');
+        cameraFolder.open();
+
+        // Bloom controls folder
+        const bloomFolder = gui.addFolder('Bloom');
+        bloomFolder.add(bloomPass, 'strength', 0, 3).name('Strength');
+        bloomFolder.add(bloomPass, 'radius', 0, 1).name('Radius');
+        bloomFolder.add(bloomPass, 'threshold', 0, 1).name('Threshold');
+        bloomFolder.open();
+        gui.addColor(material.uniforms.uJellyColor, 'value').name('Jelly Color');
+        gui.add(material.uniforms.uOpacity, 'value', 0, 1).name('Opacity');
+        gui.add(material.uniforms.uStarSize, 'value', 0.01, 0.3).name('Star Size');
+        gui.add(material.uniforms.uStarDensity, 'value', 0.5, 24.0).name('Star Density');
+        gui.add(material.uniforms.uStarMinDepth, 'value', -2.0, 2.0).name('Star Min Depth');
+        gui.add(material.uniforms.uStarMaxDepth, 'value', -2.0, 2.0).name('Star Max Depth');
+        gui.add(material.uniforms.uStarSizeVariance, 'value', 0.0, 1.0).name('Star Size Variance');
+        gui.add(material.uniforms.uStarFalloffIntensity, 'value', -2.0, 2.0).name('Star Falloff Intensity');
+        gui.add(material.uniforms.uStarChromaticAberration, 'value', 0.0, 1.0).name('Star Chromatic Aberration');
+        gui.add(material.uniforms.uReflectionIntensity, 'value', 0.0, 1.0).name('Reflection Intensity');
+        gui.add(material.uniforms.uReflectionSpecularPower, 'value', 1.0, 512.0).name('Reflection Specular Power');
+        gui.add(material.uniforms.uAutoRotateSpeed, 'value', -0.02, 0.02).name('Auto Rotate Speed');
+        gui.addColor(material.uniforms.uStarBaseColor, 'value').name('Star Base Color');
+        gui.add(material.uniforms.uStarHueVariation, 'value', 0.0, 1.0).name('Star Hue Variation');
+
+        // Copy params button
+        const copyButton = { copyParams: function() {
+            const params = {};
+            Object.keys(material.uniforms).forEach(key => {
+                const uniform = material.uniforms[key];
+                if (uniform.value !== undefined) {
+                    if (uniform.value.isColor) {
+                        params[key] = {
+                            r: uniform.value.r,
+                            g: uniform.value.g,
+                            b: uniform.value.b
+                        };
+                    } else if (uniform.value.isVector3) {
+                        params[key] = {
+                            x: uniform.value.x,
+                            y: uniform.value.y,
+                            z: uniform.value.z
+                        };
+                    } else {
+                        params[key] = uniform.value;
+                    }
+                }
+            });
+
+            const jsonString = JSON.stringify(params, null, 2);
+            console.log('Material Parameters:', jsonString);
+
+            // Copy to clipboard
+            navigator.clipboard.writeText(jsonString).then(() => {
+                console.log('Parameters copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy to clipboard:', err);
+            });
+        }};
+
+        gui.add(copyButton, 'copyParams').name('Copy Params to Clipboard');
+        gui.add(material.uniforms.uFresnelPower, 'value', 1, 10).name('Fresnel Power');
+        gui.add(material.uniforms.uFresnelIntensity, 'value', 0, 1).name('Fresnel Intensity');
+        gui.add(material.uniforms.uDistortion, 'value', 0, 20).name('Distortion');
+        gui.addColor(material.uniforms.uRimColor, 'value').name('Rim Color');
+        gui.add(material.uniforms.uRimIntensity, 'value', 0, 2).name('Rim Intensity');
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            material.uniforms.uTime.value += 0.01;
+
+            // Update lighting uniforms
+            material.uniforms.uLightPosition.value.copy(pointLight.position);
+            material.uniforms.uLightColor.value.copy(pointLight.color);
+            material.uniforms.uLightIntensity.value = pointLight.intensity;
+
+            // Update orbit controls
+            controls.update();
+
+            // Independent sphere auto-rotation (controlled by slider)
+            sphere.rotation.x += material.uniforms.uAutoRotateSpeed.value * 0.4;
+            sphere.rotation.y += material.uniforms.uAutoRotateSpeed.value;
+
+            composer.render();
+        }
+
+        animate();
+
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+            bloomPass.resolution.set(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

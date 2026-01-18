@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Scroll Showcase</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            overflow-x: hidden;
+        }
+
+        .scroll-container {
+            height: 100vh;
+            overflow-y: auto;
+            scroll-snap-type: y mandatory;
+        }
+
+        .scroll-section {
+            height: 100vh;
+            scroll-snap-align: start;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .section-1 { background: #001122; }
+        .section-2 { background: #112211; }
+        .section-3 { background: #221111; }
+
+        #threejs-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* GUI Styling */
+        .lil-gui {
+            z-index: 10 !important;
+        }
+
+        .section-content {
+            text-align: center;
+            z-index: 1;
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="scroll-container">
+        <div class="scroll-section section-1">
+            <div class="section-content">
+                <h1>Blue Sphere</h1>
+                <p>Scroll to see the transformation</p>
+            </div>
+        </div>
+        <div class="scroll-section section-2">
+            <div class="section-content">
+                <h1>Green Pyramid</h1>
+                <p>Continue scrolling...</p>
+            </div>
+        </div>
+        <div class="scroll-section section-3">
+            <div class="section-content">
+                <h1>Red Cube</h1>
+                <p>Final transformation</p>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="threejs-canvas"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/lil-gui@0.18.2/dist/lil-gui.umd.js"></script>
+    <script>
+        // Three.js scene setup
+        let scene, camera, renderer, material, mesh;
+        let sphereGeometry, coneGeometry, boxGeometry;
+        let scrollProgress = 0;
+        let targetScrollProgress = 0;
+
+        // Animation state tracking
+        let currentPhase = 0; // 0: sphere, 1: pyramid, 2: cube
+        let animationStartTime = 0;
+        let isAnimating = false;
+
+        // Fresnel GUI controls
+        let gui;
+        let fresnelParams = {
+            power: 2.0,
+            intensity: 1.0,
+            mix: 0.5,
+            color: '#ffffff'
+        };
+
+        // Marching Cubes and 4D Noise
+        let noiseMesh;
+        let noiseParams = {
+            scale: 0.1,
+            amplitude: 1.0,
+            frequency: 1.0,
+            timeScale: 0.5,
+            isoLevel: 0.0,
+            gridSize: 16,
+            showVolume: true
+        };
+
+        // Noise volume material controls
+        let noiseMaterialParams = {
+            opacity: 0.3,
+            fresnelPower: 3.0,
+            fresnelIntensity: 1.5,
+            frostAmount: 0.7,
+            color: '#ffffff',
+            tintStrength: 0.2
+        };
+
+        let time = 0;
+
+        // Simple noise implementation
+        let noisePermutation = [];
+        let noiseGradients = [];
+
+        function initNoise() {
+            // Initialize permutation table
+            for (let i = 0; i < 256; i++) {
+                noisePermutation[i] = Math.floor(Math.random() * 256);
+            }
+            noisePermutation = noisePermutation.concat(noisePermutation);
+
+            // Initialize gradients
+            for (let i = 0; i < 256; i++) {
+                noiseGradients[i] = [
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1,
+                    Math.random() * 2 - 1
+                ];
+                // Normalize
+                let len = Math.sqrt(
+                    noiseGradients[i][0] * noiseGradients[i][0] +
+                    noiseGradients[i][1] * noiseGradients[i][1] +
+                    noiseGradients[i][2] * noiseGradients[i][2]
+                );
+                noiseGradients[i][0] /= len;
+                noiseGradients[i][1] /= len;
+                noiseGradients[i][2] /= len;
+            }
+        }
+
+        function fade(t) {
+            return t * t * t * (t * (t * 6 - 15) + 10);
+        }
+
+        function lerp(a, b, t) {
+            return a + t * (b - a);
+        }
+
+        function grad(hash, x, y, z) {
+            let g = noiseGradients[hash % 256];
+            return g[0] * x + g[1] * y + g[2] * z;
+        }
+
+        function noise3D(x, y, z) {
+            // Find unit cube
+            let X = Math.floor(x) & 255;
+            let Y = Math.floor(y) & 255;
+            let Z = Math.floor(z) & 255;
+
+            // Find relative x,y,z
+            x -= Math.floor(x);
+            y -= Math.floor(y);
+            z -= Math.floor(z);
+
+            // Compute fade curves
+            let u = fade(x);
+            let v = fade(y);
+            let w = fade(z);
+
+            // Hash coordinates
+            let A = noisePermutation[X] + Y;
+            let AA = noisePermutation[A] + Z;
+            let AB = noisePermutation[A + 1] + Z;
+            let B = noisePermutation[X + 1] + Y;
+            let BA = noisePermutation[B] + Z;
+            let BB = noisePermutation[B + 1] + Z;
+
+            // Add blended results from 8 corners
+            let res = lerp(w,
+                lerp(v,
+                    lerp(u, grad(noisePermutation[AA], x, y, z),
+                           grad(noisePermutation[BA], x-1, y, z)),
+                    lerp(u, grad(noisePermutation[AB], x, y-1, z),
+                           grad(noisePermutation[BB], x-1, y-1, z))),
+                lerp(v,
+                    lerp(u, grad(noisePermutation[AA+1], x, y, z-1),
+                           grad(noisePermutation[BA+1], x-1, y, z-1)),
+                    lerp(u, grad(noisePermutation[AB+1], x, y-1, z-1),
+                           grad(noisePermutation[BB+1], x-1, y-1, z-1)))
+            );
+
+            return res;
+        }
+
+        function init() {
+            // Scene setup
+            scene = new THREE.Scene();
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 5;
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({
+                canvas: document.getElementById('threejs-canvas'),
+                alpha: true,
+                antialias: true
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+
+            // Initialize noise system
+            initNoise();
+
+            // Create all geometries
+            createGeometries();
+
+            // Custom Fresnel shader material
+            material = createFresnelMaterial();
+
+            // Create initial mesh with sphere
+            mesh = new THREE.Mesh(sphereGeometry, material);
+            scene.add(mesh);
+
+            // Create noise volume mesh with frosted glass material
+            const noiseGeometry = generateNoiseVolume();
+            const noiseMaterial = createFrostedGlassMaterial();
+            noiseMesh = new THREE.Mesh(noiseGeometry, noiseMaterial);
+            scene.add(noiseMesh);
+
+            // Shadow catcher plane background
+            const shadowCatcherGeometry = new THREE.PlaneGeometry(20, 20);
+            const shadowCatcherMaterial = new THREE.ShadowMaterial({ opacity: 0.3 });
+            const shadowCatcher = new THREE.Mesh(shadowCatcherGeometry, shadowCatcherMaterial);
+            shadowCatcher.rotation.x = -Math.PI / 2;
+            shadowCatcher.position.y = -2;
+            shadowCatcher.receiveShadow = true;
+            scene.add(shadowCatcher);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            scene.add(ambientLight);
+
+            // Spotlight
+            const spotLight = new THREE.SpotLight(0xffffff, 1);
+            spotLight.position.set(0, 10, 5);
+            spotLight.target.position.set(0, 0, 0);
+            spotLight.angle = Math.PI / 6;
+            spotLight.penumbra = 0.1;
+            spotLight.decay = 2;
+            spotLight.distance = 20;
+            spotLight.castShadow = true;
+            spotLight.shadow.mapSize.width = 2048;
+            spotLight.shadow.mapSize.height = 2048;
+            spotLight.shadow.camera.near = 1;
+            spotLight.shadow.camera.far = 20;
+            scene.add(spotLight);
+            scene.add(spotLight.target);
+
+            // Enable shadows
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // Enable shadows on mesh
+            mesh.castShadow = true;
+
+            // Event listeners
+            window.addEventListener('resize', onWindowResize);
+            document.querySelector('.scroll-container').addEventListener('scroll', onScroll);
+
+            // Initialize GUI
+            initGUI();
+
+            animate();
+        }
+
+        function createGeometries() {
+            const radius = 1;
+            const segments = 32;
+
+            // Sphere with high detail for rounded corners effect
+            sphereGeometry = new THREE.SphereGeometry(radius, segments, segments);
+
+            // Cone (pyramid) with rounded top
+            coneGeometry = new THREE.ConeGeometry(radius, radius * 2, segments);
+
+            // Box with rounded corners using high segments
+            boxGeometry = new THREE.BoxGeometry(radius * 1.5, radius * 1.5, radius * 1.5, segments, segments, segments);
+        }
+
+        function createFresnelMaterial() {
+            const vertexShader = `
+                varying vec3 vNormal;
+                varying vec3 vViewPosition;
+
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    vViewPosition = -mvPosition.xyz;
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `;
+
+            const fragmentShader = `
+                uniform vec3 baseColor;
+                uniform float fresnelPower;
+                uniform float fresnelIntensity;
+                uniform float fresnelMix;
+                uniform vec3 fresnelColor;
+
+                varying vec3 vNormal;
+                varying vec3 vViewPosition;
+
+                void main() {
+                    vec3 normal = normalize(vNormal);
+                    vec3 viewDirection = normalize(vViewPosition);
+
+                    // Fresnel effect
+                    float fresnel = pow(1.0 - max(dot(viewDirection, normal), 0.0), fresnelPower);
+                    fresnel = clamp(fresnel * fresnelIntensity, 0.0, 1.0);
+
+                    // Mix base color with fresnel highlight
+                    vec3 finalColor = mix(baseColor, fresnelColor, fresnel * fresnelMix);
+
+                    gl_FragColor = vec4(finalColor, 1.0);
+                }
+            `;
+
+            return new THREE.ShaderMaterial({
+                vertexShader: vertexShader,
+                fragmentShader: fragmentShader,
+                uniforms: {
+                    baseColor: { value: new THREE.Color(0x0088ff) },
+                    fresnelPower: { value: fresnelParams.power },
+                    fresnelIntensity: { value: fresnelParams.intensity },
+                    fresnelMix: { value: fresnelParams.mix },
+                    fresnelColor: { value: new THREE.Color(fresnelParams.color) }
+                }
+            });
+        }
+
+        function createFrostedGlassMaterial() {
+            const vertexShader = `
+                varying vec3 vNormal;
+                varying vec3 vViewPosition;
+                varying vec3 vWorldPosition;
+
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    vViewPosition = -mvPosition.xyz;
+                    vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `;
+
+            const fragmentShader = `
+                uniform float opacity;
+                uniform float fresnelPower;
+                uniform float fresnelIntensity;
+                uniform float frostAmount;
+                uniform vec3 glassColor;
+                uniform float tintStrength;
+
+                varying vec3 vNormal;
+                varying vec3 vViewPosition;
+                varying vec3 vWorldPosition;
+
+                // Simple noise function for frosted effect
+                float hash(vec2 p) {
+                    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+                }
+
+                float noise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    float a = hash(i);
+                    float b = hash(i + vec2(1.0, 0.0));
+                    float c = hash(i + vec2(0.0, 1.0));
+                    float d = hash(i + vec2(1.0, 1.0));
+                    vec2 u = f * f * (3.0 - 2.0 * f);
+                    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+                }
+
+                void main() {
+                    vec3 normal = normalize(vNormal);
+                    vec3 viewDirection = normalize(vViewPosition);
+
+                    // Fresnel effect
+                    float fresnel = pow(1.0 - max(dot(viewDirection, normal), 0.0), fresnelPower);
+                    fresnel = clamp(fresnel * fresnelIntensity, 0.0, 1.0);
+
+                    // Frosted glass effect using noise
+                    vec2 uv = vWorldPosition.xy * 2.0;
+                    float frost = noise(uv) * frostAmount;
+
+                    // Combine fresnel and frost
+                    float rimLight = mix(fresnel, frost, 0.3);
+
+                    // Base glass color with tint
+                    vec3 baseColor = mix(vec3(1.0), glassColor, tintStrength);
+                    vec3 finalColor = mix(baseColor, vec3(1.0), rimLight * 0.5);
+
+                    // Add some scattering effect
+                    float scatter = pow(1.0 - abs(dot(viewDirection, normal)), 2.0);
+                    finalColor += scatter * 0.2;
+
+                    gl_FragColor = vec4(finalColor, opacity * (1.0 - rimLight * 0.3));
+                }
+            `;
+
+            return new THREE.ShaderMaterial({
+                vertexShader: vertexShader,
+                fragmentShader: fragmentShader,
+                uniforms: {
+                    opacity: { value: noiseMaterialParams.opacity },
+                    fresnelPower: { value: noiseMaterialParams.fresnelPower },
+                    fresnelIntensity: { value: noiseMaterialParams.fresnelIntensity },
+                    frostAmount: { value: noiseMaterialParams.frostAmount },
+                    glassColor: { value: new THREE.Color(noiseMaterialParams.color) },
+                    tintStrength: { value: noiseMaterialParams.tintStrength }
+                },
+                transparent: true,
+                side: THREE.DoubleSide,
+                blending: THREE.NormalBlending,
+                depthWrite: false
+            });
+        }
+
+        function initGUI() {
+            gui = new lil.GUI();
+
+            const fresnelFolder = gui.addFolder('Fresnel Effect');
+            fresnelFolder.add(fresnelParams, 'power', 0.1, 5.0, 0.1).name('Power').onChange(updateFresnelUniforms);
+            fresnelFolder.add(fresnelParams, 'intensity', 0.0, 2.0, 0.1).name('Intensity').onChange(updateFresnelUniforms);
+            fresnelFolder.add(fresnelParams, 'mix', 0.0, 1.0, 0.1).name('Mix').onChange(updateFresnelUniforms);
+            fresnelFolder.addColor(fresnelParams, 'color').name('Color').onChange(updateFresnelUniforms);
+
+            const noiseFolder = gui.addFolder('4D Noise Volume');
+            noiseFolder.add(noiseParams, 'scale', 0.01, 0.5, 0.01).name('Scale').onChange(updateNoiseMesh);
+            noiseFolder.add(noiseParams, 'amplitude', 0.1, 3.0, 0.1).name('Amplitude').onChange(updateNoiseMesh);
+            noiseFolder.add(noiseParams, 'frequency', 0.1, 3.0, 0.1).name('Frequency').onChange(updateNoiseMesh);
+            noiseFolder.add(noiseParams, 'timeScale', 0.0, 2.0, 0.1).name('Time Scale');
+            noiseFolder.add(noiseParams, 'isoLevel', -2.0, 2.0, 0.1).name('Iso Level').onChange(updateNoiseMesh);
+            noiseFolder.add(noiseParams, 'gridSize', 8, 32, 2).name('Blob Size').onChange(updateNoiseMesh);
+            noiseFolder.add(noiseParams, 'showVolume').name('Show Volume').onChange(toggleNoiseVolume);
+
+            const glassFolder = gui.addFolder('Frosted Glass Material');
+            glassFolder.add(noiseMaterialParams, 'opacity', 0.0, 1.0, 0.05).name('Opacity').onChange(updateNoiseMaterialUniforms);
+            glassFolder.add(noiseMaterialParams, 'fresnelPower', 0.5, 8.0, 0.1).name('Fresnel Power').onChange(updateNoiseMaterialUniforms);
+            glassFolder.add(noiseMaterialParams, 'fresnelIntensity', 0.0, 3.0, 0.1).name('Fresnel Intensity').onChange(updateNoiseMaterialUniforms);
+            glassFolder.add(noiseMaterialParams, 'frostAmount', 0.0, 2.0, 0.1).name('Frost Amount').onChange(updateNoiseMaterialUniforms);
+            glassFolder.addColor(noiseMaterialParams, 'color').name('Glass Color').onChange(updateNoiseMaterialUniforms);
+            glassFolder.add(noiseMaterialParams, 'tintStrength', 0.0, 1.0, 0.05).name('Tint Strength').onChange(updateNoiseMaterialUniforms);
+        }
+
+        function updateNoiseMesh() {
+            if (noiseParams.showVolume) {
+                const newGeometry = generateNoiseVolume();
+                noiseMesh.geometry.dispose();
+                noiseMesh.geometry = newGeometry;
+            }
+        }
+
+        function toggleNoiseVolume() {
+            noiseMesh.visible = noiseParams.showVolume;
+        }
+
+        function updateNoiseMaterialUniforms() {
+            if (noiseMesh && noiseMesh.material && noiseMesh.material.uniforms) {
+                noiseMesh.material.uniforms.opacity.value = noiseMaterialParams.opacity;
+                noiseMesh.material.uniforms.fresnelPower.value = noiseMaterialParams.fresnelPower;
+                noiseMesh.material.uniforms.fresnelIntensity.value = noiseMaterialParams.fresnelIntensity;
+                noiseMesh.material.uniforms.frostAmount.value = noiseMaterialParams.frostAmount;
+                noiseMesh.material.uniforms.glassColor.value.set(noiseMaterialParams.color);
+                noiseMesh.material.uniforms.tintStrength.value = noiseMaterialParams.tintStrength;
+            }
+        }
+
+        function updateFresnelUniforms() {
+            if (material && material.uniforms) {
+                material.uniforms.fresnelPower.value = fresnelParams.power;
+                material.uniforms.fresnelIntensity.value = fresnelParams.intensity;
+                material.uniforms.fresnelMix.value = fresnelParams.mix;
+                material.uniforms.fresnelColor.value.set(fresnelParams.color);
+            }
+        }
+
+        // 4D Noise function (3D position + time)
+        function noise4D(x, y, z, t) {
+            // Use multiple octaves of 3D noise with time offset
+            let value = 0;
+            let amplitude = noiseParams.amplitude;
+            let frequency = noiseParams.frequency;
+
+            for (let i = 0; i < 4; i++) {
+                value += noise3D(x * frequency, y * frequency, z * frequency + t * noiseParams.timeScale) * amplitude;
+                amplitude *= 0.5;
+                frequency *= 2.0;
+            }
+
+            return value;
+        }
+
+        // Marching Cubes implementation
+        // Simplified marching cubes - just create a basic blob shape
+        function createSimpleBlob() {
+            const vertices = [];
+            const size = noiseParams.gridSize;
+
+            // Create a simple sphere-like blob using basic geometry
+            const radius = size * 0.3;
+            const segments = 16;
+
+            // Generate vertices for a sphere-like shape
+            for (let lat = 0; lat <= segments; lat++) {
+                const theta = lat * Math.PI / segments;
+                const sinTheta = Math.sin(theta);
+                const cosTheta = Math.cos(theta);
+
+                for (let lon = 0; lon <= segments; lon++) {
+                    const phi = lon * 2 * Math.PI / segments;
+                    const sinPhi = Math.sin(phi);
+                    const cosPhi = Math.cos(phi);
+
+                    const x = radius * sinTheta * cosPhi;
+                    const y = radius * sinTheta * sinPhi;
+                    const z = radius * cosTheta;
+
+                    // Add some noise displacement
+                    const noiseValue = noise4D(x * 0.1, y * 0.1, z * 0.1, time);
+                    const displacement = noiseValue * 0.5;
+
+                    vertices.push(
+                        x + displacement,
+                        y + displacement,
+                        z + displacement
+                    );
+                }
+            }
+
+            // Generate indices for triangles
+            const indices = [];
+            for (let lat = 0; lat < segments; lat++) {
+                for (let lon = 0; lon < segments; lon++) {
+                    const first = lat * (segments + 1) + lon;
+                    const second = first + segments + 1;
+
+                    indices.push(first, second, first + 1);
+                    indices.push(second, second + 1, first + 1);
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geometry.setIndex(indices);
+            geometry.computeVertexNormals();
+
+            return geometry;
+        }
+
+        function generateNoiseVolume() {
+            return createSimpleBlob();
+        }
+
+
+        // Ease-out bounce function
+        function easeOutBounce(t) {
+            const n1 = 7.5625;
+            const d1 = 2.75;
+
+            if (t < 1 / d1) {
+                return n1 * t * t;
+            } else if (t < 2 / d1) {
+                return n1 * (t -= 1.5 / d1) * t + 0.75;
+            } else if (t < 2.5 / d1) {
+                return n1 * (t -= 2.25 / d1) * t + 0.9375;
+            } else {
+                return n1 * (t -= 2.625 / d1) * t + 0.984375;
+            }
+        }
+
+        function updateGeometry(progress) {
+            // Check for threshold crossings to trigger animations
+            let newPhase = 0;
+            if (progress >= 0.66) newPhase = 2;
+            else if (progress >= 0.33) newPhase = 1;
+
+            if (newPhase !== currentPhase && !isAnimating) {
+                // Threshold crossed, start animation
+                isAnimating = true;
+                animationStartTime = Date.now();
+                currentPhase = newPhase;
+            }
+
+            // Update geometry based on animation state
+            if (isAnimating) {
+                const elapsed = Date.now() - animationStartTime;
+                const animationProgress = Math.min(elapsed / 1000, 1); // 1 second duration
+
+                if (animationProgress >= 1) {
+                    // Animation complete
+                    isAnimating = false;
+                }
+
+                // Apply the bounce easing to the animation progress
+                const easedProgress = easeOutBounce(animationProgress);
+
+                // Apply the transition based on current phase
+                switch (currentPhase) {
+                    case 0: // Sphere to Pyramid
+                        if (mesh.geometry !== sphereGeometry) {
+                            mesh.geometry = sphereGeometry;
+                        }
+                        updateSphereToPyramid(easedProgress);
+                        break;
+                    case 1: // Pyramid to Cube
+                        if (mesh.geometry !== coneGeometry) {
+                            mesh.geometry = coneGeometry;
+                        }
+                        updatePyramidToCube(easedProgress);
+                        break;
+                    case 2: // Cube final
+                        if (mesh.geometry !== boxGeometry) {
+                            mesh.geometry = boxGeometry;
+                        }
+                        updateToCube(easedProgress);
+                        break;
+                }
+            } else {
+                // Not animating, show static state based on current phase
+                switch (currentPhase) {
+                    case 0:
+                        if (mesh.geometry !== sphereGeometry) {
+                            mesh.geometry = sphereGeometry;
+                        }
+                        // Reset sphere to initial state
+                        mesh.scale.set(1, 1, 1);
+                        mesh.rotation.y = 0;
+                        mesh.rotation.x = 0;
+                        break;
+                    case 1:
+                        if (mesh.geometry !== coneGeometry) {
+                            mesh.geometry = coneGeometry;
+                        }
+                        // Show pyramid in its final form (before transition to cube)
+                        mesh.scale.set(0.9, 1.3, 0.9);
+                        mesh.rotation.y = Math.PI * 0.5;
+                        mesh.rotation.x = Math.PI * 0.1;
+                        break;
+                    case 2:
+                        if (mesh.geometry !== boxGeometry) {
+                            mesh.geometry = boxGeometry;
+                        }
+                        // Show cube in its final form
+                        mesh.scale.set(1.0, 1.2, 1.0);
+                        mesh.rotation.y = Math.PI + Math.PI * 0.25;
+                        mesh.rotation.x = -Math.PI * 0.05;
+                        break;
+                }
+            }
+
+            // Update colors (always based on scroll progress)
+            updateColors(progress);
+        }
+
+        function updateSphereToPyramid(phase) {
+            // Apply ease-out bounce to the phase
+            const easedPhase = easeOutBounce(phase);
+
+            // Smooth transition from sphere to pyramid
+            const scaleY = 1 + easedPhase * 0.3; // Elongate slightly
+            const scaleX = 1 - easedPhase * 0.1; // Narrow slightly
+            mesh.scale.set(scaleX, scaleY, scaleX);
+            mesh.rotation.y = easedPhase * Math.PI * 0.5;
+            mesh.rotation.x = easedPhase * Math.PI * 0.1;
+        }
+
+        function updatePyramidToCube(phase) {
+            // phase goes from 0 (pyramid) to 1 (cube) over 1 second
+            const easedPhase = easeOutBounce(phase);
+
+            // Start from pyramid-like proportions and morph to cube
+            const startScaleY = 1.3;
+            const startScaleX = 0.9;
+            const startRotationY = Math.PI * 0.5;
+            const startRotationX = Math.PI * 0.1;
+
+            const endScaleY = 1.0;
+            const endScaleX = 1.0;
+            const endRotationY = Math.PI;
+            const endRotationX = 0;
+
+            const scaleY = startScaleY + (endScaleY - startScaleY) * easedPhase;
+            const scaleX = startScaleX + (endScaleX - startScaleX) * easedPhase;
+            mesh.scale.set(scaleX, scaleY, scaleX);
+
+            mesh.rotation.y = startRotationY + (endRotationY - startRotationY) * easedPhase;
+            mesh.rotation.x = startRotationX + (endRotationX - startRotationX) * easedPhase;
+        }
+
+        function updateToCube(phase) {
+            // Final cube form with smooth settling
+            const settle = Math.min(easeOutBounce(phase) * 2, 1); // Quick settle animation with bounce
+            mesh.scale.set(1.0, 1.0 + settle * 0.2, 1.0);
+            mesh.rotation.y = Math.PI + settle * Math.PI * 0.25;
+            mesh.rotation.x = -settle * Math.PI * 0.05;
+        }
+
+        function updateColors(progress) {
+            let r, g, b;
+
+            if (progress < 0.33) {
+                // Blue to Blue-Green
+                const t = progress / 0.33;
+                r = 0;
+                g = Math.floor(136 * t);
+                b = 255;
+            } else if (progress < 0.66) {
+                // Blue-Green to Red-Green
+                const t = (progress - 0.33) / 0.33;
+                r = Math.floor(255 * t);
+                g = 136;
+                b = Math.floor(255 * (1 - t));
+            } else {
+                // Red-Green to Red
+                const t = (progress - 0.66) / 0.34;
+                r = 255;
+                g = Math.floor(136 * (1 - t));
+                b = 0;
+            }
+
+            // Update shader material base color
+            material.uniforms.baseColor.value.setRGB(r/255, g/255, b/255);
+
+            // Update background colors
+            updateBackground(progress);
+        }
+
+        function updateBackground(progress) {
+            let bgColor;
+
+            if (progress < 0.33) {
+                // Blue background
+                const intensity = 0.1 + (progress / 0.33) * 0.1;
+                bgColor = `rgb(${Math.floor(0 * intensity)}, ${Math.floor(17 * intensity)}, ${Math.floor(34 * intensity)})`;
+            } else if (progress < 0.66) {
+                // Green background
+                const intensity = 0.1 + ((progress - 0.33) / 0.33) * 0.1;
+                bgColor = `rgb(${Math.floor(17 * intensity)}, ${Math.floor(34 * intensity)}, ${Math.floor(17 * intensity)})`;
+            } else {
+                // Red background
+                const intensity = 0.1 + ((progress - 0.66) / 0.34) * 0.1;
+                bgColor = `rgb(${Math.floor(34 * intensity)}, ${Math.floor(17 * intensity)}, ${Math.floor(17 * intensity)})`;
+            }
+
+            document.body.style.backgroundColor = bgColor;
+        }
+
+        function onScroll() {
+            const scrollContainer = document.querySelector('.scroll-container');
+            const scrollTop = scrollContainer.scrollTop;
+            const maxScroll = scrollContainer.scrollHeight - window.innerHeight;
+            targetScrollProgress = Math.max(0, Math.min(1, scrollTop / maxScroll));
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Smooth scroll progress interpolation
+            scrollProgress += (targetScrollProgress - scrollProgress) * 0.1;
+
+            // Update time for 4D noise
+            time += 0.016; // Approximate 60fps
+
+            // Update geometry and colors based on scroll
+            updateGeometry(scrollProgress);
+
+            // Update noise volume if visible
+            if (noiseParams.showVolume && noiseParams.timeScale > 0) {
+                updateNoiseMesh();
+            }
+
+            // Rotate the mesh continuously
+            mesh.rotation.x += 0.005;
+            mesh.rotation.z += 0.002;
+
+            // Rotate noise volume
+            if (noiseMesh) {
+                noiseMesh.rotation.x += 0.003;
+                noiseMesh.rotation.y += 0.002;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize when DOM is loaded
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
