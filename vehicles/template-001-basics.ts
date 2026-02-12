@@ -1,5 +1,4 @@
-// Basic "car" controls for the cube: steer + throttle. Uses registerUpdate and applyImpulseToBox.
-// Designed to be portable to Roblox Lua by porting the same math and update logic.
+console.log('[template-001-basics] loaded');
 
 let heading = 0; // radians; 0 = forward along negative Z
 const steerSpeed = Math.PI; // rad/s turn rate
@@ -13,8 +12,14 @@ function horizSpeed(b:any) {
 }
 
 // Update loop: dt seconds, keys is sceneApi.keys
+let _basics_first = true;
 registerUpdate((dt:number, keys:any) => {
 	const k = keys;
+	if (_basics_first) {
+		_basics_first = false;
+		console.log('[template-001-basics] update started', { heading, accel, maxSpeed });
+	}
+
 	// steering
 	if (k.a || k.ArrowLeft) heading -= steerSpeed * dt;
 	if (k.d || k.ArrowRight) heading += steerSpeed * dt;

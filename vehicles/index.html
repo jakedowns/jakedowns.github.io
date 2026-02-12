@@ -9,9 +9,9 @@
 		html,body { height:100%; margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
 		.app {
 			height:100vh;
-			display:grid;
-			grid-template-columns: 1fr 1fr;
-			grid-template-rows: 1fr 1fr;
+			display: grid;
+			grid-template-columns: var(--col-split) var(--gutter-size) calc(100% - var(--col-split) - var(--gutter-size));
+			grid-template-rows: var(--row-split) var(--gutter-size) calc(100% - var(--row-split) - var(--gutter-size));
 			gap:6px;
 			padding:6px;
 			box-sizing:border-box;
@@ -28,20 +28,54 @@
 			box-sizing:border-box;
 		}
 		.panel header { font-weight:600; margin-bottom:6px; display:flex;justify-content:space-between;align-items:center; }
+		/* Fix: correct textarea selector (removed stray '<') */
 		textarea { width:100%; height:100%; resize:none; background:#070707; color:#dcdcdc; border:0; padding:8px; box-sizing:border-box; font-family:monospace; font-size:13px; }
 		textarea[readonly]{ opacity:0.95; }
 		.controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 		.small { font-size:13px; padding:6px 8px; background:#141414; color:#ddd; border:1px solid #2a2a2a; border-radius:4px; }
 		#canvas { width:100%; height:100%; display:block; }
-		.leftTop { grid-column:1; grid-row:1; }
-		.rightTop { grid-column:2; grid-row:1; }
-		.leftBottom { grid-column:1; grid-row:2; }
-		.rightBottom { grid-column:2; grid-row:2; }
-		.file-list { max-height:120px; overflow:auto; margin-top:8px; border:1px dashed #222; padding:6px; background:#070707; }
-		.file-item { padding:4px; border-bottom:1px solid #111; display:flex; justify-content:space-between; align-items:center; }
-		.btn { cursor:pointer; }
-		.lead { color:#9ad; }
-		.footer-note { font-size:12px; color:#666; margin-top:6px; }
+		/* Position panels into the new 3x3 grid (gutters occupy middle row/col) */
+		.leftTop { grid-column: 1; grid-row: 1; }
+		.rightTop { grid-column: 3; grid-row: 1; }
+		.leftBottom { grid-column: 1; grid-row: 3; }
+		.rightBottom { grid-column: 3; grid-row: 3; }
+
+		/* gutter visuals */
+		.gutter-vertical {
+			grid-column: 2;
+			grid-row: 1 / span 3;
+			cursor: col-resize;
+			background: transparent;
+			/* small visible handle */
+			display:flex; align-items:center; justify-content:center;
+		}
+		.gutter-horizontal {
+			grid-column: 1 / span 3;
+			grid-row: 2;
+			cursor: row-resize;
+			background: transparent;
+			display:flex; align-items:center; justify-content:center;
+		}
+		.gutter-handle {
+			width:100%;
+			height:100%;
+			min-height: var(--gutter-size);
+			min-width: var(--gutter-size);
+		}
+		/* Make panels layout header + content; ensure content can shrink correctly */
+		.panel { display:flex; flex-direction:column; min-height:0; min-width:0; }
+		.panel header { flex: 0 0 auto; }
+		/* Ensure CodeMirror and textareas fill remaining space */
+		.panel > .CodeMirror, .panel textarea {
+			flex: 1 1 auto;
+			min-height: 0;
+			min-width: 0;
+			height: 100%;
+			width: 100%;
+			box-sizing: border-box;
+		}
+		/* Force CodeMirror wrapper CSS if loaded */
+		.CodeMirror { height: 100% !important; }
 	</style>
 	<!-- Add CodeMirror for editor + output highlighting -->
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
@@ -60,14 +94,23 @@
 			<header>
 				<span>TypeScript Editor</span>
 				<span style="font-size:12px;opacity:0.8">Live: compiles to JS, executes in scene, and emits Lua</span>
-				<!-- theme toggle -->
+				<!-- mode selector (JS or TS) + theme toggle -->
+				<select id="modeSelect" class="small" title="Editor language/mode">
+					<option value="js">JS</option>
+					<option value="ts">TS</option>
+				</select>
 				<button id="themeToggle" class="small btn" title="Toggle dark theme">Dark</button>
 			</header>
 			<!-- we keep a hidden textarea for progressive enhancement; CodeMirror will replace it -->
 			<textarea id="editor" spellcheck="false"></textarea>
 		</section>
 
-		<!-- Top-right: Lua output -->
+		<!-- Vertical gutter between columns -->
+		<div class="gutter-vertical" id="gutterV">
+			<div class="gutter-handle" aria-hidden="true"></div>
+		</div>
+
+		<!-- Top-right: Lua/JS output -->
 		<section class="panel rightTop">
 			<header>
 				<span>Output</span>
@@ -76,7 +119,7 @@
 						<option value="js">JavaScript</option>
 						<option value="lua">Lua</option>
 					</select>
-					<button id="try-transpile" class="small btn">Try external TS->Lua</button>
+					<button id="try-transpile" class="small btn" title="Try external TS->Lua">Try external TS->Lua</button>
 				</div>
 			</header>
 			<!-- JS output (read-only) -->
@@ -84,6 +127,11 @@
 			<!-- Lua output (read-only) -->
 			<textarea id="luaOut" readonly></textarea>
 		</section>
+
+		<!-- Horizontal gutter between rows -->
+		<div class="gutter-horizontal" id="gutterH">
+			<div class="gutter-handle" aria-hidden="true"></div>
+		</div>
 
 		<!-- Bottom-left: Controls, templates, files, lil-gui placeholder -->
 		<section class="panel leftBottom">
@@ -96,9 +144,9 @@
 
 			<div class="controls" style="margin-bottom:8px;">
 				<input id="filename" class="small" placeholder="file name (eg: main.ts)" />
-				<button id="saveAs" class="small btn">Save As</button>
-				<button id="newFile" class="small btn">New Blank</button>
-				<button id="exportLua" class="small btn">Export Lua</button>
+				<button id="saveAs" class="small btn" title="Save current editor content as a new file">Save As</button>
+				<button id="newFile" class="small btn" title="Create a new blank file">New Blank</button>
+				<button id="exportLua" class="small btn" title="Export Lua code to .lua file">Export Lua</button>
 			</div>
 
 			<div class="file-list" id="fileList" aria-live="polite"></div>
@@ -113,7 +161,10 @@
 		<section class="panel rightBottom" style="position:relative;padding:0;">
 			<header style="position:absolute;z-index:5;width:100%;background:transparent;border-bottom:0;padding:6px;">
 				<span style="color:#9ad">Three.js Scene (WASD / Arrows to move)</span>
-				<span style="float:right;font-size:12px;color:#888;margin-top:4px;">Gravity: <span id="gravityVal">-9.82</span></span>
+				<div style="float:right; display:flex; gap:8px; align-items:center;">
+					<span style="font-size:12px;color:#888;margin-top:4px;">Gravity: <span id="gravityVal">-9.82</span></span>
+					<button id="resetSceneBtn" class="small btn" title="Reset scene">Reset Scene</button>
+				</div>
 			</header>
 			<canvas id="canvas"></canvas>
 			<!-- GUI will attach here (lil-gui) -->
@@ -126,13 +177,51 @@
 	<script src="https://unpkg.com/typescript@latest/lib/typescriptServices.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/lil-gui@0.18/dist/lil-gui.min.js"></script>
 
+	<!-- Main app script now loads submodules (scene + utils). Remaining app logic still lives inline below. -->
+	<script type="module">
+		// Load submodules and wire scene/physics into the page-level script below.
+		import { debounce } from './js/utils.js';
+		import { setupScene } from './js/scene.js';
+
+		// make debounce available to the inline app code that follows
+		window.__app_debounce = debounce;
+
+		// setup scene/renderer/physics using the canvas element that's already in the DOM
+		const canvas = document.getElementById('canvas');
+		// setupScene returns the core runtime and a startAnimation() function
+		const sceneModule = setupScene({ canvas });
+		// expose returned properties globally so the rest of the inline script can reference them
+		window.scene = sceneModule.scene;
+		window.renderer = sceneModule.renderer;
+		window.camera = sceneModule.camera;
+		window.physics = sceneModule.physics;
+		window.makeBoxBody = sceneModule.makeBoxBody;
+		window.applyImpulseToBody = sceneModule.applyImpulseToBody;
+		window.applyImpulseToBox = sceneModule.applyImpulseToBox;
+		window.boxMesh = sceneModule.boxMesh;
+		window.boxBody = sceneModule.boxBody;
+		window.groundMesh = sceneModule.groundMesh;
+		window.coreObjects = sceneModule.coreObjects;
+
+		// start the animation/render loop
+		sceneModule.startAnimation();
+	</script>
+
 	<script>
+		// The remainder of the page's original script expects a `debounce` symbol and scene globals.
+		// Provide a thin shim binding to the imported debounce:
+		const debounce = window.__app_debounce;
+
 		// App state and utilities
 		const STORAGE_KEY = 'vehicles_editor_files_v1';
 		const AUTO_SAVE_KEY = 'vehicles_editor_autosave_v1';
 		const builtInTemplates = {
 			"blank.ts": "// blank file\n",
-			"starter-moving-box.ts": `// Starter: moves a box with WASD/Arrows\nconst speed = 6;\nconst applyImpulse = (dirX:number, dirZ:number) => {\n    // use sceneApi.applyImpulse which is deterministic and portable to Lua\n    applyImpulseToBox(dirX * speed, dirZ * speed);\n};\n// register simple update hook\nregisterUpdate((dt:number, keys:any) => {\n    const k = keys;\n    let x = 0, z = 0;\n    if (k.ArrowUp || k.w) z -= 1;\n    if (k.ArrowDown || k.s) z += 1;\n    if (k.ArrowLeft || k.a) x -= 1;\n    if (k.ArrowRight || k.d) x += 1;\n    if (x!==0 || z!==0) applyImpulse(x, z);\n});\n`
+			"starter-moving-box.ts": "// Starter: moves a box with WASD/Arrows\nconst speed = 6;\nconst applyImpulse = (dirX, dirZ) => {\n\tapplyImpulseToBox(dirX * speed, dirZ * speed);\n};\nregisterUpdate((dt, keys) => {\n\tconst k = keys;\n\tlet x = 0, z = 0;\n\tif (k.ArrowUp || k.w) z -= 1;\n\tif (k.ArrowDown || k.s) z += 1;\n\tif (k.ArrowLeft || k.a) x -= 1;\n\tif (k.ArrowRight || k.d) x += 1;\n\tif (x !== 0 || z !== 0) applyImpulse(x, z);\n});\n",
+			"template-001-basics.ts": "// Template 001: Basics\n// Simple rotating box + basic input logging\nregisterUpdate((dt) => {\n\tif (typeof boxMesh !== 'undefined') boxMesh.rotation.y += 0.6 * dt;\n});\nwindow.addEventListener('keydown', (e) => console.log('[template-001] keydown', e.key));\nwindow.addEventListener('keyup', (e) => console.log('[template-001] keyup', e.key));\n",
+			"template-002-proxy.ts": "// Template 002: Proxy Demo\n// A simple proxy-style example that nudges the box upward slowly and logs once\nconsole.log('[template-002] running');\nregisterUpdate((dt) => {\n\tif (boxBody) boxBody.velocity.y += 0.5 * dt; // gentle lift\n});\n",
+			"template-003-hello.ts": "// Template 003: Hello Three.js\n// Adds a checkerboard floor, a cube, lights and a small rotation animation\ntry { scene.background = new THREE.Color(0x87ceeb); } catch(e){}\n// checkerboard floor\n(function(){\n\tconst size = 512, squares = 8;\n\tconst canvas = document.createElement('canvas');\n\tcanvas.width = canvas.height = size;\n\tconst ctx = canvas.getContext('2d');\n\tif (ctx) {\n\t\tconst sq = size / squares;\n\t\tfor (let y=0;y<squares;y++) for (let x=0;x<squares;x++){\n\t\t\tctx.fillStyle = ((x+y)&1) ? '#ddd' : '#444';\n\t\t\tctx.fillRect(x*sq,y*sq,sq,sq);\n\t\t}\n\t\tconst tex = new THREE.CanvasTexture(canvas);\n\t\tconst mat = new THREE.MeshStandardMaterial({ map: tex });\n\t\tconst g = new THREE.PlaneGeometry(40,40);\n\t\tconst m = new THREE.Mesh(g, mat);\n\t\tm.rotation.x = -Math.PI/2; m.position.y = 0; scene.add(m);\n\t}\n})();\n(function(){\n\tconst geo = new THREE.BoxGeometry(1,1,1);\n\tconst mat = new THREE.MeshStandardMaterial({ color: 0x88ff88 });\n\tconst mesh = new THREE.Mesh(geo, mat);\n\tmesh.position.set(0,1,0);\n\tscene.add(mesh);\n\tregisterUpdate((dt)=>{ mesh.rotation.y += dt * 0.6; mesh.position.y = 1 + Math.sin(Date.now()*0.002)*0.05; });\n\tconsole.log('[template-003] added cube+floor');\n})();\n",
+			"hello.js": "// Hello JS: rotate box and map WASD/Arrows to rotate the box\nconsole.log('[hello.js] loaded');\nregisterUpdate((dt, keys) => {\n\t// rotate box using keys: left/right rotate yaw, up/down rotate pitch\n\tif (!boxMesh) return;\n\tconst turnSpeed = 2.0; // radians per second\n\tlet yaw = 0, pitch = 0;\n\tif (keys.a || keys.ArrowLeft) yaw += turnSpeed * dt * -1;\n\tif (keys.d || keys.ArrowRight) yaw += turnSpeed * dt * 1;\n\tif (keys.w || keys.ArrowUp) pitch += turnSpeed * dt * -1;\n\tif (keys.s || keys.ArrowDown) pitch += turnSpeed * dt * 1;\n\t// apply small rotation to mesh and nudge physics velocity direction slightly\n\tboxMesh.rotation.y += yaw;\n\tboxMesh.rotation.x = Math.max(Math.min(boxMesh.rotation.x + pitch, 0.5), -0.5);\n\t// optional: apply slight impulse forward in mesh's -Z local\n\tconst forwardX = -Math.sin(boxMesh.rotation.y);\n\tconst forwardZ = -Math.cos(boxMesh.rotation.y);\n\tif (Math.abs(yaw) > 0 || Math.abs(pitch) > 0) {\n\t\tapplyImpulseToBox(forwardX * 1.2 * dt, forwardZ * 1.2 * dt);\n\t}\n});\n"
 		};
 
 		// Simple in-memory file store merged with localStorage
@@ -153,276 +242,333 @@
 		const tryTranspileBtn = document.getElementById('try-transpile');
 		const gravityVal = document.getElementById('gravityVal');
 		const outputView = document.getElementById('outputView');
-
-		// Create CodeMirror instances (replace textareas)
-		let editorCM = null;
-		let jsCM = null;
-		let luaCM = null;
-		// theme preference (persisted)
-		const THEME_KEY = 'vehicles_cm_dark_v1';
-		let isDark = localStorage.getItem(THEME_KEY) === '1';
-		const themeToggleBtn = document.getElementById('themeToggle');
-		function updateThemeToggleUI() { if (themeToggleBtn) themeToggleBtn.textContent = isDark ? 'Light' : 'Dark'; }
-		updateThemeToggleUI();
-		if (themeToggleBtn) themeToggleBtn.addEventListener('click', () => {
-			isDark = !isDark;
-			localStorage.setItem(THEME_KEY, isDark ? '1' : '0');
-			applyCodeMirrorTheme(isDark);
-			updateThemeToggleUI();
-		});
-
-		(function setupCodeMirrors() {
-			try {
-				editorCM = CodeMirror.fromTextArea(editor, {
-					mode: { name: "javascript", typescript: true },
-					lineNumbers: true,
-					indentUnit: 4,
-					tabSize: 4,
-					theme: isDark ? 'dracula' : 'default'
-				});
-
-				jsCM = CodeMirror.fromTextArea(jsOut, {
-					mode: "javascript",
-					lineNumbers: true,
-					readOnly: true,
-					theme: isDark ? 'dracula' : 'default'
-				});
-
-				luaCM = CodeMirror.fromTextArea(luaOut, {
-					mode: "lua",
-					lineNumbers: true,
-					readOnly: true,
-					theme: isDark ? 'dracula' : 'default'
-				});
-			} catch (e) {
-				// CodeMirror not available — fall back to textareas (already present)
-				editorCM = null;
-				jsCM = null;
-				luaCM = null;
-			}
-		})();
-
-		function applyCodeMirrorTheme(dark) {
-			const t = dark ? 'dracula' : 'default';
-			if (editorCM) editorCM.setOption('theme', t);
-			if (jsCM) jsCM.setOption('theme', t);
-			if (luaCM) luaCM.setOption('theme', t);
+		// Mode selection (js | ts) and CodeMirror mode switch
+		const modeSelect = document.getElementById('modeSelect');
+		let execMode = localStorage.getItem('vehicles_exec_mode_v1') || 'js';
+		if (modeSelect) {
+			modeSelect.value = execMode;
 		}
 
-		// toggle JS/Lua output view
-		outputView.addEventListener('change', () => {
-			const v = outputView.value;
-			if (v === 'js') {
-				if (jsCM) { jsCM.getWrapperElement().style.display = ''; }
-				if (luaCM) { luaCM.getWrapperElement().style.display = 'none'; }
-				jsOut.style.display = '';
-				luaOut.style.display = 'none';
+		// Ensure editorCM is declared before any function attempts to access it
+		// (avoids "Cannot access 'editorCM' before initialization" when updateEditorMode runs early)
+		var editorCM;
+
+		function updateEditorMode() {
+			if (!editorCM) return;
+			if (execMode === 'ts') {
+				editorCM.setOption('mode', { name: "javascript", typescript: true });
 			} else {
-				if (jsCM) { jsCM.getWrapperElement().style.display = 'none'; }
-				if (luaCM) { luaCM.getWrapperElement().style.display = ''; }
-				jsOut.style.display = 'none';
-				luaOut.style.display = '';
+				editorCM.setOption('mode', 'javascript');
 			}
-		});
-
-		// ensure initial visibility
-		outputView.value = 'js';
-		outputView.dispatchEvent(new Event('change'));
-
-		// Populate template select
-		function buildTemplateOptions() {
-			templateSelect.innerHTML = '';
-			const builtOptGroup = document.createElement('optgroup');
-			builtOptGroup.label = 'Built-in Templates';
-			for (const k of Object.keys(builtInTemplates)) {
-				const o = document.createElement('option');
-				o.value = k; o.textContent = k;
-				builtOptGroup.appendChild(o);
-			}
-			templateSelect.appendChild(builtOptGroup);
-
-			const userKeys = Object.keys(files);
-			if (userKeys.length) {
-				const userOpt = document.createElement('optgroup');
-				userOpt.label = 'User Templates';
-				for (const k of userKeys) {
-					const o = document.createElement('option');
-					o.value = k; o.textContent = k;
-					userOpt.appendChild(o);
-				}
-				templateSelect.appendChild(userOpt);
-			}
+			// refresh to apply sizing/style
+			editorCM.refresh();
 		}
+		updateEditorMode();
 
-		// Refresh file list UI
-		function refreshFileList() {
-			fileList.innerHTML = '';
-			// built-in
-			for (const k of Object.keys(builtInTemplates)) {
-				const el = document.createElement('div');
-				el.className = 'file-item';
-				el.innerHTML = '<span class="lead">'+k+'</span><div><button class="small btn" data-load="'+k+'">Load</button></div>';
-				fileList.appendChild(el);
-			}
-			for (const k of Object.keys(files)) {
-				const el = document.createElement('div');
-				el.className = 'file-item';
-				el.innerHTML = '<span>'+k+'</span><div><button class="small btn" data-load="'+k+'">Load</button> <button class="small btn" data-del="'+k+'">Del</button></div>';
-				fileList.appendChild(el);
-			}
-		}
-
-		// Load content into editor
-		function loadFile(name) {
-			currentFile = name;
-			localStorage.setItem(AUTO_SAVE_KEY, currentFile);
-			let content = files[name];
-			if (content == null) content = builtInTemplates[name] || '';
-			editor.value = content;
-			if (editorCM) editorCM.setValue(content);
-			filenameInput.value = name;
-			// compile the loaded content
-			triggerCompile().catch(err => console.warn('compile on load failed', err));
-			buildTemplateOptions();
-			refreshFileList();
-		}
-
-		// Save current buffer into files under currentFile
-		function saveCurrentTo(name) {
-			files[name] = editor.value;
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
-			buildTemplateOptions();
-			refreshFileList();
-		}
-
-		// Delete user file
-		function deleteUserFile(name) {
-			delete files[name];
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
-			buildTemplateOptions();
-			refreshFileList();
-		}
-
-		// Basic TS -> Lua fallback transpiler (very small subset)
-		function tsToLuaFallback(src) {
-			// remove TS types, export default, and convert var/let/const to local
-			let out = src.replace(/: *[a-zA-Z0-9_<>\[\]\|\s\?]+/g, ''); // naive remove types
-			out = out.replace(/\/\/.*$/gm, '--$&'.replace(/\/\/\s*/,''));
-			out = out.replace(/\bconsole\.log\b/g, 'print');
-			out = out.replace(/\b(let|const|var)\b/g, 'local');
-			// function declarations
-			out = out.replace(/function\s+([a-zA-Z0-9_]+)\s*\((.*?)\)\s*{/g, 'function $1(' + '$2' + ')\n');
-			// arrow functions -> function expressions (best effort)
-			out = out.replace(/([a-zA-Z0-9_]+)\s*=\s*\((.*?)\)\s*=>\s*{/g, 'function $1($2)\n');
-			// braces close
-			out = out.replace(/}\s*$/gm, 'end');
-			// replace ; and {} where possible
-			out = out.replace(/;/g, '');
-			// console replacement already done
-			return '-- Lua (fallback)\n' + out;
-		}
-
-		// Attempt to use an external TS->Lua transpiler if available (best-effort)
-		let externalTsToLua = null;
-		tryTranspileBtn.addEventListener('click', async () => {
-			try {
-				// Try to import a UMD if available (best-effort); this may fail gracefully.
-				// Many TS->Lua projects are Node-based; we provide this as a best-effort hook.
-				alert('Attempting to use a remote TS->Lua transpiler (best-effort). If it fails, fallback will be used.');
-				// Example: tries to load a hypothetical browser bundle (likely not available)
-				// externalTsToLua = await import('https://unpkg.com/typescript-to-lua@master/dist/index.browser.js');
-				// if (externalTsToLua && externalTsToLua.transpileModule) alert('External transpiler ready!');
-				alert('No external transpiler available in this demo — fallback will be used.');
-			} catch (e) {
-				console.warn('External transpiler load failed', e);
-			}
-		});
-
-		// Compile TS -> JS using TypeScript in-browser and then execute into the scene
-		// ensureTs will load typescriptServices.js on-demand if `ts` is not present
-		function ensureTs() {
-			if (typeof ts !== 'undefined') return Promise.resolve();
-			if (window._tsLoading) return window._tsLoading;
-			const url = 'https://unpkg.com/typescript@latest/lib/typescriptServices.js';
-			window._tsLoading = new Promise((resolve, reject) => {
-				const s = document.createElement('script');
-				s.src = url;
-				s.onload = () => {
-					if (typeof ts !== 'undefined') resolve();
-					else reject(new Error('typescriptServices loaded but `ts` not found'));
-				};
-				s.onerror = (err) => reject(err || new Error('Failed to load TypeScript script'));
-				document.head.appendChild(s);
+		if (modeSelect) {
+			modeSelect.addEventListener('change', (e) => {
+				execMode = modeSelect.value || 'js';
+				localStorage.setItem('vehicles_exec_mode_v1', execMode);
+				updateEditorMode();
+				// re-run compile/eval with new mode
+				triggerCompile().catch(err => console.warn('mode switch compile error', err));
 			});
-			return window._tsLoading;
 		}
 
-		async function transpileTsToJs(code) {
-			try {
-				await ensureTs();
-				const result = ts.transpileModule(code, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2018 }});
-				return result.outputText;
-			} catch (e) {
-				console.warn('TS transpile error or ts not ready, falling back to returning original code as-is', e);
-				// Fallback: return the original code so user can still run simple JS/TS that doesn't require compilation.
-				// Wrap in a comment to make it obvious if transpilation failed.
-				return '// TS transpile fallback — original source\n' + code;
+		// Ensure these rendering variables exist before other code may reference them
+		let scene = null;
+		let camera = null;
+		let renderer = null;
+
+		// Create Three.js scene and camera now (so other code referencing `scene` won't run before it's defined)
+		scene = new THREE.Scene();
+		scene.background = new THREE.Color(0x0a0a0a);
+		camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+		camera.position.set(0,6,10);
+
+		// track core objects so reset can remove user-added objects
+		const coreObjects = new Set();
+
+		const ambient = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+		scene.add(ambient);
+		coreObjects.add(ambient);
+
+		const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+		dirLight.position.set(5,10,7);
+		scene.add(dirLight);
+		coreObjects.add(dirLight);
+		// create renderer bound to the canvas
+		const canvas = document.getElementById('canvas');
+		renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+		renderer.setPixelRatio(window.devicePixelRatio || 1);
+		renderer.setSize(canvas.clientWidth || 300, canvas.clientHeight || 200);
+
+		// Deterministic, Roblox-portable physics implementation (semi-implicit Euler)
+		const physics = {
+			gravityY: -9.82,
+			ground: { normal: {x:0,y:1,z:0}, height: 0, material: { name: 'groundMat', friction: 0.4, restitution: 0.0 } },
+			bodies: [] // array of bodies we will simulate
+		};
+
+		function makeBoxBody(opts) {
+			const b = {
+				position: { x: opts.position.x, y: opts.position.y, z: opts.position.z },
+				velocity: { x: 0, y: 0, z: 0 },
+				halfExtents: { x: opts.halfExtents.x, y: opts.halfExtents.y, z: opts.halfExtents.z },
+				mass: opts.mass || 1,
+				angularDamping: opts.angularDamping || 0.5,
+				userData: opts.userData || {}
+			};
+			physics.bodies.push(b);
+			return b;
+		}
+
+		function applyImpulseToBody(body, impulse) {
+			body.velocity.x += impulse.x / body.mass;
+			body.velocity.y += impulse.y / body.mass;
+			body.velocity.z += impulse.z / body.mass;
+		}
+
+		function applyImpulseToBox(x, z) {
+			if (typeof boxBody !== 'undefined') applyImpulseToBody(boxBody, { x, y: 0, z });
+		}
+
+		function physicsStep(dt) {
+			const g = physics.gravityY;
+			const groundY = physics.ground.height;
+			const mu = physics.ground.material.friction;
+			for (const b of physics.bodies) {
+				// integrate velocity (semi-implicit Euler)
+				b.velocity.y += g * dt;
+				// damping
+				b.velocity.x *= (1 - Math.min(0.5, b.angularDamping * dt));
+				b.velocity.z *= (1 - Math.min(0.5, b.angularDamping * dt));
+				// integrate position
+				b.position.x += b.velocity.x * dt;
+				b.position.y += b.velocity.y * dt;
+				b.position.z += b.velocity.z * dt;
+				// ground contact
+				const bottomY = b.position.y - b.halfExtents.y;
+				if (bottomY <= groundY) {
+					b.position.y = groundY + b.halfExtents.y;
+					if (b.velocity.y < 0) {
+						b.velocity.y = -b.velocity.y * (physics.ground.material.restitution || 0);
+						if (Math.abs(b.velocity.y) < 0.01) b.velocity.y = 0;
+					}
+					const speedHoriz = Math.sqrt(b.velocity.x*b.velocity.x + b.velocity.z*b.velocity.z);
+					if (speedHoriz > 0.0001) {
+						const normalForce = b.mass * Math.abs(g);
+						const frictionMag = mu * normalForce * dt;
+						const dv = frictionMag / b.mass;
+						const nx = b.velocity.x / speedHoriz;
+						const nz = b.velocity.z / speedHoriz;
+						const newSpeed = Math.max(0, speedHoriz - dv);
+						b.velocity.x = nx * newSpeed;
+						b.velocity.z = nz * newSpeed;
+					} else {
+						b.velocity.x = 0;
+						b.velocity.z = 0;
+					}
+				}
 			}
 		}
 
-		// debounce helper to avoid excessive transpiles during typing
-		function debounce(fn, wait = 200) {
-			let t = null;
-			return (...args) => { clearTimeout(t); t = setTimeout(()=>fn(...args), wait); };
+		// ground visual
+		const groundGeo = new THREE.PlaneGeometry(40,40);
+		const groundMat = new THREE.MeshStandardMaterial({ color:0x222222 });
+		const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+		groundMesh.rotation.x = -Math.PI/2;
+		scene.add(groundMesh);
+		coreObjects.add(groundMesh);
+
+		// box visual + physics body
+		const boxGeo = new THREE.BoxGeometry(1,1,1);
+		const boxMatMesh = new THREE.MeshStandardMaterial({ color:0x88aaff });
+		let boxMesh = new THREE.Mesh(boxGeo, boxMatMesh);
+		boxMesh.castShadow = true;
+		scene.add(boxMesh);
+		coreObjects.add(boxMesh);
+		let boxBody = makeBoxBody({ position: { x:0, y:3, z:0 }, halfExtents: { x:0.5, y:0.5, z:0.5 }, mass: 1, angularDamping: 0.5 });
+
+		// helper: dispose THREE object graph (geometry/material/texture) to avoid leaks
+		function disposeObject(obj) {
+			try {
+				if (obj.geometry) { obj.geometry.dispose && obj.geometry.dispose(); }
+				if (obj.material) {
+					// material can be an array
+					const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+					for (const m of mats) {
+						if (m.map) { m.map.dispose && m.map.dispose(); }
+						if (m.dispose) m.dispose();
+					}
+				}
+				if (obj.children && obj.children.length) {
+					for (const c of obj.children.slice()) {
+						disposeObject(c);
+						obj.remove(c);
+					}
+				}
+			} catch(e) { /* ignore disposal errors */ }
 		}
 
+		// --- Added small helper stubs to prevent ReferenceError for missing functions ---
+		// Provide a minimal theme helper so load handler won't blow up if real function is missing
+		let isDark = true;
+		function applyCodeMirrorTheme(dark) {
+			isDark = !!dark;
+			const themeBtn = document.getElementById('themeToggle');
+			if (themeBtn) themeBtn.textContent = isDark ? 'Dark' : 'Light';
+			// real CodeMirror theme application happens where editors are created; this is a safe no-op fallback
+		}
+
+		// Populate the templates select using built-in templates + any user-saved files
+		function buildTemplateOptions() {
+			if (!templateSelect) return;
+			templateSelect.innerHTML = '';
+			const seen = new Set();
+			// add built-in templates first
+			for (const k of Object.keys(builtInTemplates)) {
+				const opt = document.createElement('option');
+				opt.value = k;
+				opt.textContent = k;
+				templateSelect.appendChild(opt);
+				seen.add(k);
+			}
+			// then user files
+			for (const k of Object.keys(files)) {
+				if (seen.has(k)) continue;
+				const opt = document.createElement('option');
+				opt.value = k;
+				opt.textContent = k;
+				templateSelect.appendChild(opt);
+			}
+			// keep selection in sync
+			if (currentFile) templateSelect.value = currentFile;
+		}
+
+		// Render the file list (simple DOM output used by existing click handler)
+		function refreshFileList() {
+			if (!fileList) return;
+			fileList.innerHTML = '';
+			const rows = [];
+			// built-ins (load-only)
+			for (const k of Object.keys(builtInTemplates)) {
+				rows.push(`<div style="padding:6px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #111;">
+					<span style="cursor:pointer;color:#8cf" data-load="${k}">${k}</span>
+					<button data-load="${k}" class="small">Load</button>
+				</div>`);
+			}
+			// user files (load + delete)
+			for (const k of Object.keys(files)) {
+				rows.push(`<div style="padding:6px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #111;">
+					<span style="cursor:pointer" data-load="${k}">${k}</span>
+					<div>
+						<button data-load="${k}" class="small">Load</button>
+						<button data-del="${k}" class="small" style="margin-left:6px;">Del</button>
+					</div>
+				</div>`);
+			}
+			fileList.innerHTML = rows.join('');
+		}
+
+		// Minimal triggerCompile implementation:
+		// - if execMode === 'ts' and TypeScript is present, transpile to JS
+		// - populate jsOut and luaOut (luaOut is a stub placeholder)
+		// - eval the compiled JS in the page so user scripts can call registerUpdate(), etc.
 		async function triggerCompile() {
-			const tsCode = editorCM ? editorCM.getValue() : editor.value;
-			// auto-save buffer to localStorage for current file
-			localStorage.setItem(AUTO_SAVE_KEY, currentFile);
-			// Update in-memory file (but only autosave behavior; Save As preserves user files)
-			files[currentFile] = tsCode;
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
+			const src = (editorCM && typeof editorCM.getValue === 'function') ? editorCM.getValue() : (editor ? editor.value : '');
+			let compiledJs = src;
 
-			// Transpile TS->JS (async, ensures ts is loaded)
-			const js = await transpileTsToJs(tsCode);
+			if (execMode === 'ts' && window.ts && typeof ts.transpileModule === 'function') {
+				try {
+					const out = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2017 } });
+					compiledJs = out && out.outputText ? out.outputText : compiledJs;
+				} catch (e) {
+					compiledJs = `// TypeScript transpile error: ${e && e.message ? e.message : String(e)}\n`;
+				}
+			}
 
-			// Execute JS in sandbox: provide sceneApi
+			if (jsOut) jsOut.value = compiledJs;
+			if (luaOut) luaOut.value = `-- Lua output (stub)\n-- The app can invoke an external transpiler for TS->Lua. For now this is a placeholder.\n${compiledJs}`;
+
+			// Execute compiled JS so user code registers update callbacks, etc.
 			try {
-				// wrap code in function with sceneApi in scope
-				// The code is evaluated with "with(sceneApi){...}" so sceneApi members are available by name.
-				// We reset userUpdate before running so user's registerUpdate() will reassign the active update mapping.
-				const fn = new Function('sceneApi', 'with(sceneApi){' + js + '\n}'); // "with" gives convenient access
-				// Reset userUpdate each run
+				// clear any existing userUpdate
 				userUpdate = null;
-				// ensure global sceneApi is present (some user code references window.sceneApi)
-				try { window.sceneApi = sceneApi; } catch (e) {}
-				fn(sceneApi);
+				// Wrap in a function that provides commonly expected globals
+				const wrapper = new Function('scene', 'THREE', 'sceneApi', 'registerUpdate', 'keys', compiledJs + '\n//# sourceURL=editor.js');
+				// Use existing globals (fall back to locally scoped var names)
+				wrapper(window.scene || scene, window.THREE || THREE, window.sceneApi || sceneApi, window.registerUpdate || registerUpdate, window.keysDown || keysDown);
 			} catch (e) {
-				console.error('Error executing user script', e);
+				// don't throw to callers; log and keep app running
+				console.error('[triggerCompile] runtime error', e);
+			}
+			return Promise.resolve();
+		}
+		// --- end added helpers ---
+
+		// Load a file by name (user files or built-in templates).
+		function loadFile(name) {
+			if (!name) return;
+			let content = '';
+			if (files && Object.prototype.hasOwnProperty.call(files, name)) {
+				content = files[name];
+			} else if (builtInTemplates && Object.prototype.hasOwnProperty.call(builtInTemplates, name)) {
+				content = builtInTemplates[name];
+			} else {
+				// unknown file: create an empty placeholder
+				content = '// new file: ' + name + '\n';
 			}
 
-			// Emit Lua using external transpiler if present, otherwise fallback
-			let luaText = '';
-			if (externalTsToLua && typeof externalTsToLua.transpileModule === 'function') {
-				try { luaText = externalTsToLua.transpileModule(tsCode).lua || tsToLuaFallback(tsCode); }
-				catch(e){ luaText = tsToLuaFallback(tsCode); }
-			} else {
-				luaText = tsToLuaFallback(tsCode);
+			currentFile = name;
+			try { localStorage.setItem(AUTO_SAVE_KEY, currentFile); } catch (e) {}
+
+			// fill editor (CodeMirror if present, otherwise textarea)
+			if (editorCM && typeof editorCM.setValue === 'function') {
+				editorCM.setValue(content);
+			} else if (editor) {
+				editor.value = content;
 			}
-			// update output panes (prefer CodeMirror)
-			if (jsCM) jsCM.setValue(js);
-			else jsOut.value = js;
-			if (luaCM) luaCM.setValue(luaText);
-			else luaOut.value = luaText;
+
+			// keep UI in sync
+			if (templateSelect) templateSelect.value = name;
+			if (filenameInput) filenameInput.value = name;
+
+			// refresh lists and compile/run
+			buildTemplateOptions();
+			refreshFileList();
+			triggerCompile().catch(err => console.warn('loadFile: triggerCompile error', err));
 		}
 
-		// Event wiring: prefer CodeMirror change events
-		const triggerCompileDebounced = debounce(() => triggerCompile().catch(err => console.warn('compile error', err)), 150);
-		if (editorCM) {
-			editorCM.on('change', triggerCompileDebounced);
-		} else {
-			editor.addEventListener('keyup', () => { triggerCompileDebounced(); });
+		// Save the current editor contents into the in-memory files map and persist to localStorage.
+		function saveCurrentTo(name) {
+			if (!name) return;
+			const content = (editorCM && typeof editorCM.getValue === 'function') ? editorCM.getValue() : (editor ? editor.value : '');
+			files = files || {};
+			files[name] = content;
+			try {
+				localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
+			} catch (e) { console.warn('saveCurrentTo: could not persist', e); }
+			// ensure UI shows the new file
+			buildTemplateOptions();
+			refreshFileList();
+		}
+
+		// Delete a user file and update UI/storage. Built-in templates are not deleted.
+		function deleteUserFile(name) {
+			if (!name || !files || !Object.prototype.hasOwnProperty.call(files, name)) return;
+			delete files[name];
+			try { localStorage.setItem(STORAGE_KEY, JSON.stringify(files)); } catch (e) {}
+			if (currentFile === name) {
+				// pick a sensible fallback
+				const fallback = 'blank.ts';
+				currentFile = fallback;
+				try { localStorage.setItem(AUTO_SAVE_KEY, currentFile); } catch(e){}
+				loadFile(fallback);
+			} else {
+				buildTemplateOptions();
+				refreshFileList();
+			}
 		}
 
 		// Save As
@@ -468,19 +614,95 @@
 			}
 		});
 
-		// On initial load: build UI, load last file or blank
-		// Try to fetch an external template file and make it the default if available.
-		(async function init() {
+		// Small API to expose to user scripts (designed to be ported to Roblox Lua easily)
+		let userUpdate = null;
+		const keysDown = {};
+		window.addEventListener('keydown', (e)=>{ keysDown[e.key] = true; });
+		window.addEventListener('keyup', (e)=>{ keysDown[e.key] = false; });
+
+		function registerUpdate(fn) { userUpdate = fn; }
+
+		const sceneApi = {
+			// use window fallbacks so this object is resilient if executed in different orders
+			scene: (typeof window !== 'undefined' && window.scene) ? window.scene : scene,
+			THREE: (typeof window !== 'undefined' && window.THREE) ? window.THREE : THREE,
+			physics, // expose physics world and material schema (ground, friction, restitution)
+			makeBoxBody, applyImpulseToBody, applyImpulseToBox,
+			boxMesh, boxBody, groundMesh,
+			registerUpdate, keys: keysDown
+		};
+
+		// Expose sceneApi globally so user scripts that reference `sceneApi` directly won't throw.
+		try { window.sceneApi = sceneApi; } catch (e) { /* ignore on restricted environments */ }
+
+		// Reset scene helper: resets the main box body and proxy target if present
+		function resetScene() {
+			// Remove user-added objects (anything not in coreObjects)
 			try {
-				const res = await fetch('./template-001-basics.ts');
-				if (res.ok) {
-					const txt = await res.text();
-					// register as a built-in template and prefer it as the default
-					builtInTemplates['template-001-basics.ts'] = txt;
-					currentFile = 'template-001-basics.ts';
+				for (const child of scene.children.slice()) {
+					if (!coreObjects.has(child)) {
+						disposeObject(child);
+						scene.remove(child);
+					}
 				}
+			} catch (e) { console.warn('resetScene: error removing user objects', e); }
+
+			// reset main box physics and visual
+			if (typeof boxBody !== 'undefined') {
+				boxBody.position.x = 0;
+				boxBody.position.y = 3;
+				boxBody.position.z = 0;
+				boxBody.velocity.x = 0;
+				boxBody.velocity.y = 0;
+				boxBody.velocity.z = 0;
+			}
+			if (typeof boxMesh !== 'undefined') {
+				boxMesh.position.set(0, 3, 0);
+				boxMesh.quaternion.set(0, 0, 0, 1);
+				boxMesh.rotation.set(0, 0, 0);
+			}
+
+			// reset proxy target if present
+			if (window.sceneProxy && window.sceneProxy.position) {
+				try { window.sceneProxy.position.set(0, 1.5, -3); } catch (e) {}
+			}
+
+			// reset camera to default overview
+			if (camera) {
+				camera.position.set(0, 6, 10);
+				camera.lookAt(0, 1, 0);
+			}
+
+			console.log('[app] scene reset: cleared user objects, reset core state — reloading user script');
+
+			// Re-run the current editor script so it re-attaches behavior to the fresh scene
+			// triggerCompile is async; fire-and-forget but log errors
+			try {
+				triggerCompile().catch(err => console.warn('resetScene: triggerCompile error', err));
 			} catch (e) {
-				console.warn('Could not load runtime template template-001-basics.ts', e);
+				console.warn('resetScene: could not re-run script', e);
+			}
+		}
+		const resetBtn = document.getElementById('resetSceneBtn');
+		if (resetBtn) resetBtn.addEventListener('click', () => resetScene());
+
+		// On initial load: build UI, load last file or blank
+		// Try to fetch runtime templates (001 and 002). prefer 002 if available.
+		(async function init() {
+			const templatesToLoad = ['template-001-basics.ts','template-002-proxy.ts'];
+			for (const t of templatesToLoad) {
+				try {
+					const res = await fetch('./' + t);
+					if (res.ok) {
+						const txt = await res.text();
+						builtInTemplates[t] = txt;
+						// prefer the proxy demo as default if present
+						if (t === 'template-002-proxy.ts') currentFile = t;
+						else if (!currentFile) currentFile = t;
+					}
+				} catch (e) {
+					console.warn('Could not load runtime template', t, e);
+				}
 			}
 
 			buildTemplateOptions();
@@ -499,6 +721,133 @@
 
 		// initial compile (async)
 		triggerCompile().catch(err => console.warn('initial compile error', err));
+		// CodeMirror setup already creates editorCM/jsCM/luaCM.
+		// Ensure the CodeMirror wrappers fill their panels and refresh on resize:
+		function refreshAllCodeMirrors() {
+			try {
+				if (editorCM) editorCM.refresh();
+				if (jsCM) jsCM.refresh();
+				if (luaCM) luaCM.refresh();
+			} catch (e) { /* ignore */ }
+		}
+
+		// ResizeObserver to detect panel size changes and refresh CodeMirror
+		(function attachResizeObservers() {
+			if (typeof ResizeObserver === 'undefined') return;
+			const ro = new ResizeObserver(entries => {
+				// refresh editors on any resize event (debounced)
+				window.requestAnimationFrame(refreshAllCodeMirrors);
+			});
+			// observe panel elements that contain editors/outputs
+			const panels = document.querySelectorAll('.panel');
+			panels.forEach(p => ro.observe(p));
+		})();
+
+		// Gutter drag behavior (vertical and horizontal) to update CSS vars
+		(function setupGutters() {
+			const gutterV = document.getElementById('gutterV');
+			const gutterH = document.getElementById('gutterH');
+			let dragging = null;
+
+			function onPointerDown(e, type) {
+				dragging = { type, startX: e.clientX, startY: e.clientY, startCol: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--col-split')), startRow: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-split')) };
+				document.documentElement.setPointerCapture && document.documentElement.setPointerCapture(e.pointerId);
+				window.addEventListener('pointermove', onPointerMove);
+				window.addEventListener('pointerup', onPointerUp);
+				e.preventDefault();
+			}
+
+			function onPointerMove(e) {
+				if (!dragging) return;
+				const rect = document.documentElement.getBoundingClientRect();
+				if (dragging.type === 'v') {
+					// compute new percentage for left column
+					const px = e.clientX - rect.left;
+					let pct = Math.max(5, Math.min(95, (px / rect.width) * 100));
+					document.documentElement.style.setProperty('--col-split', pct + '%');
+				} else if (dragging.type === 'h') {
+					const py = e.clientY - rect.top;
+					let pct = Math.max(5, Math.min(95, (py / rect.height) * 100));
+					document.documentElement.style.setProperty('--row-split', pct + '%');
+				}
+				// refresh editors while dragging
+				refreshAllCodeMirrors();
+				e.preventDefault();
+			}
+
+			function onPointerUp(e) {
+				dragging = null;
+				window.removeEventListener('pointermove', onPointerMove);
+				window.removeEventListener('pointerup', onPointerUp);
+			}
+
+			if (gutterV) gutterV.addEventListener('pointerdown', (e)=>onPointerDown(e, 'v'));
+			if (gutterH) gutterH.addEventListener('pointerdown', (e)=>onPointerDown(e, 'h'));
+		})();
+
+		// Ensure editors stretch fully on initial load
+		window.addEventListener('load', () => {
+			// apply theme initially
+			applyCodeMirrorTheme(isDark);
+			// force CodeMirror wrappers to 100% height if present
+			refreshAllCodeMirrors();
+		});
+
+		// Attach lil-gui (or a safe mock) to the right-bottom panel so it renders correctly
+		(function createGuiAttached() {
+			const container = document.querySelector('.rightBottom') || document.body;
+			let GUIConstructor = null;
+			if (typeof lil !== 'undefined' && lil && typeof lil.GUI === 'function') GUIConstructor = lil.GUI;
+
+			// Minimal mock GUI to avoid errors when lil-gui isn't available
+			function MockFolder(){ }
+			MockFolder.prototype.add = function(){ return { onChange: ()=>{} }; };
+			MockFolder.prototype.listen = function(){ return this; };
+			MockFolder.prototype.close = function(){};
+			MockFolder.prototype.addFolder = function(){ return new MockFolder(); };
+
+			function MockGUI(){ this.domElement = document.createElement('div'); }
+			MockGUI.prototype.addFolder = function(){ return new MockFolder(); };
+			MockGUI.prototype.close = function(){};
+
+			if (!GUIConstructor) GUIConstructor = MockGUI;
+
+			const gui = new GUIConstructor({ width: 300 });
+			// Attach to container and position
+			if (gui.domElement && container) {
+				gui.domElement.style.position = 'absolute';
+				gui.domElement.style.top = '8px';
+				gui.domElement.style.right = '8px';
+				gui.domElement.style.zIndex = 20;
+				container.appendChild(gui.domElement);
+			}
+
+			try { gui.close && gui.close(); } catch(e){}
+
+			// Physics controls (safe no-op if mock)
+			const physFolder = (typeof gui.addFolder === 'function') ? gui.addFolder('Physics') : new MockFolder();
+			const physParams = { gravityY: physics.gravityY, groundFriction: physics.ground.material.friction };
+			try {
+				// Add gravity control
+				physFolder.add(physParams, 'gravityY', -20, 0, 0.1).onChange && physFolder.add(physParams, 'gravityY', -20, 0, 0.1).onChange(v => {
+					physics.gravityY = v;
+					gravityVal.textContent = v.toFixed(2);
+				});
+				// Add friction control
+				physFolder.add(physParams, 'groundFriction', 0, 5, 0.01).onChange && physFolder.add(physParams, 'groundFriction', 0, 5, 0.01).onChange(v => {
+					physics.ground.material.friction = v;
+				});
+			} catch (e) { /* ignore */ }
+
+			// Ground material folder
+			const groundSchema = physics.ground.material;
+			const gmFolder = (typeof gui.addFolder === 'function') ? gui.addFolder('GroundMaterial') : new MockFolder();
+			try {
+				gmFolder.add(groundSchema, 'name').listen && gmFolder.add(groundSchema, 'name').listen();
+				gmFolder.add(groundSchema, 'friction', 0, 5, 0.01).onChange && gmFolder.add(groundSchema, 'friction', 0, 5, 0.01).onChange(v => { groundSchema.friction = v; });
+				gmFolder.add(groundSchema, 'restitution', 0, 1, 0.01).onChange && gmFolder.add(groundSchema, 'restitution', 0, 1, 0.01).onChange(v => { groundSchema.restitution = v; });
+			} catch (e) {}
+		})();
 	</script>
 </body>
 </html>
