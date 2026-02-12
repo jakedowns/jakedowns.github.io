@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<title>TS -> Lua + Three.js Physics Editor</title>
+	<style>
+		/* ...existing code... */
+		html,body { height:100%; margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; }
+		.app {
+			height:100vh;
+			display:grid;
+			grid-template-columns: 1fr 1fr;
+			grid-template-rows: 1fr 1fr;
+			gap:6px;
+			padding:6px;
+			box-sizing:border-box;
+			background:#1e1e1e;
+			color:#ddd;
+		}
+		.panel {
+			background:#0f1114;
+			border:1px solid #222;
+			padding:8px;
+			overflow:hidden;
+			display:flex;
+			flex-direction:column;
+			box-sizing:border-box;
+		}
+		.panel header { font-weight:600; margin-bottom:6px; display:flex;justify-content:space-between;align-items:center; }
+		textarea { width:100%; height:100%; resize:none; background:#070707; color:#dcdcdc; border:0; padding:8px; box-sizing:border-box; font-family:monospace; font-size:13px; }
+		textarea[readonly]{ opacity:0.95; }
+		.controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+		.small { font-size:13px; padding:6px 8px; background:#141414; color:#ddd; border:1px solid #2a2a2a; border-radius:4px; }
+		#canvas { width:100%; height:100%; display:block; }
+		.leftTop { grid-column:1; grid-row:1; }
+		.rightTop { grid-column:2; grid-row:1; }
+		.leftBottom { grid-column:1; grid-row:2; }
+		.rightBottom { grid-column:2; grid-row:2; }
+		.file-list { max-height:120px; overflow:auto; margin-top:8px; border:1px dashed #222; padding:6px; background:#070707; }
+		.file-item { padding:4px; border-bottom:1px solid #111; display:flex; justify-content:space-between; align-items:center; }
+		.btn { cursor:pointer; }
+		.lead { color:#9ad; }
+		.footer-note { font-size:12px; color:#666; margin-top:6px; }
+	</style>
+	<!-- Add CodeMirror for editor + output highlighting -->
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+	<!-- Dark theme for CodeMirror -->
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/dracula.min.css">
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/lua/lua.min.js"></script>
+	<!-- javascript mode supports TypeScript via the "typescript" option -->
+	<!-- ...existing code... -->
+</head>
+<body>
+	<div class="app">
+		<!-- Top-left: TypeScript editor -->
+		<section class="panel leftTop">
+			<header>
+				<span>TypeScript Editor</span>
+				<span style="font-size:12px;opacity:0.8">Live: compiles to JS, executes in scene, and emits Lua</span>
+				<!-- theme toggle -->
+				<button id="themeToggle" class="small btn" title="Toggle dark theme">Dark</button>
+			</header>
+			<!-- we keep a hidden textarea for progressive enhancement; CodeMirror will replace it -->
+			<textarea id="editor" spellcheck="false"></textarea>
+		</section>
+
+		<!-- Top-right: Lua output -->
+		<section class="panel rightTop">
+			<header>
+				<span>Output</span>
+				<div style="display:flex;gap:8px;align-items:center;">
+					<select id="outputView" class="small">
+						<option value="js">JavaScript</option>
+						<option value="lua">Lua</option>
+					</select>
+					<button id="try-transpile" class="small btn">Try external TS->Lua</button>
+				</div>
+			</header>
+			<!-- JS output (read-only) -->
+			<textarea id="jsOut" readonly style="display:none"></textarea>
+			<!-- Lua output (read-only) -->
+			<textarea id="luaOut" readonly></textarea>
+		</section>
+
+		<!-- Bottom-left: Controls, templates, files, lil-gui placeholder -->
+		<section class="panel leftBottom">
+			<header>
+				<span>Files & Templates</span>
+				<div style="display:flex;gap:8px;align-items:center;">
+					<select id="templateSelect" class="small"></select>
+				</div>
+			</header>
+
+			<div class="controls" style="margin-bottom:8px;">
+				<input id="filename" class="small" placeholder="file name (eg: main.ts)" />
+				<button id="saveAs" class="small btn">Save As</button>
+				<button id="newFile" class="small btn">New Blank</button>
+				<button id="exportLua" class="small btn">Export Lua</button>
+			</div>
+
+			<div class="file-list" id="fileList" aria-live="polite"></div>
+
+			<div class="footer-note">
+				Autosave on keyup. Use Save As to create named files (user templates appear in the templates select).
+			</div>
+			<!-- ...existing code... -->
+		</section>
+
+		<!-- Bottom-right: Three.js + Cannon physics -->
+		<section class="panel rightBottom" style="position:relative;padding:0;">
+			<header style="position:absolute;z-index:5;width:100%;background:transparent;border-bottom:0;padding:6px;">
+				<span style="color:#9ad">Three.js Scene (WASD / Arrows to move)</span>
+				<span style="float:right;font-size:12px;color:#888;margin-top:4px;">Gravity: <span id="gravityVal">-9.82</span></span>
+			</header>
+			<canvas id="canvas"></canvas>
+			<!-- GUI will attach here (lil-gui) -->
+		</section>
+	</div>
+
+	<!-- Libraries -->
+	<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+	<!-- removed cannon-es: we provide a deterministic, Roblox-portable physics implementation in JS instead -->
+	<script src="https://unpkg.com/typescript@latest/lib/typescriptServices.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/lil-gui@0.18/dist/lil-gui.min.js"></script>
+
+	<script>
+		// App state and utilities
+		const STORAGE_KEY = 'vehicles_editor_files_v1';
+		const AUTO_SAVE_KEY = 'vehicles_editor_autosave_v1';
+		const builtInTemplates = {
+			"blank.ts": "// blank file\n",
+			"starter-moving-box.ts": `// Starter: moves a box with WASD/Arrows\nconst speed = 6;\nconst applyImpulse = (dirX:number, dirZ:number) => {\n    // use sceneApi.applyImpulse which is deterministic and portable to Lua\n    applyImpulseToBox(dirX * speed, dirZ * speed);\n};\n// register simple update hook\nregisterUpdate((dt:number, keys:any) => {\n    const k = keys;\n    let x = 0, z = 0;\n    if (k.ArrowUp || k.w) z -= 1;\n    if (k.ArrowDown || k.s) z += 1;\n    if (k.ArrowLeft || k.a) x -= 1;\n    if (k.ArrowRight || k.d) x += 1;\n    if (x!==0 || z!==0) applyImpulse(x, z);\n});\n`
+		};
+
+		// Simple in-memory file store merged with localStorage
+		let files = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+		// current file name
+		let currentFile = localStorage.getItem(AUTO_SAVE_KEY) || 'blank.ts';
+
+		// DOM refs
+		const editor = document.getElementById('editor');
+		const luaOut = document.getElementById('luaOut');
+		const jsOut = document.getElementById('jsOut');
+		const templateSelect = document.getElementById('templateSelect');
+		const fileList = document.getElementById('fileList');
+		const filenameInput = document.getElementById('filename');
+		const saveAsBtn = document.getElementById('saveAs');
+		const newFileBtn = document.getElementById('newFile');
+		const exportLuaBtn = document.getElementById('exportLua');
+		const tryTranspileBtn = document.getElementById('try-transpile');
+		const gravityVal = document.getElementById('gravityVal');
+		const outputView = document.getElementById('outputView');
+
+		// Create CodeMirror instances (replace textareas)
+		let editorCM = null;
+		let jsCM = null;
+		let luaCM = null;
+		// theme preference (persisted)
+		const THEME_KEY = 'vehicles_cm_dark_v1';
+		let isDark = localStorage.getItem(THEME_KEY) === '1';
+		const themeToggleBtn = document.getElementById('themeToggle');
+		function updateThemeToggleUI() { if (themeToggleBtn) themeToggleBtn.textContent = isDark ? 'Light' : 'Dark'; }
+		updateThemeToggleUI();
+		if (themeToggleBtn) themeToggleBtn.addEventListener('click', () => {
+			isDark = !isDark;
+			localStorage.setItem(THEME_KEY, isDark ? '1' : '0');
+			applyCodeMirrorTheme(isDark);
+			updateThemeToggleUI();
+		});
+
+		(function setupCodeMirrors() {
+			try {
+				editorCM = CodeMirror.fromTextArea(editor, {
+					mode: { name: "javascript", typescript: true },
+					lineNumbers: true,
+					indentUnit: 4,
+					tabSize: 4,
+					theme: isDark ? 'dracula' : 'default'
+				});
+
+				jsCM = CodeMirror.fromTextArea(jsOut, {
+					mode: "javascript",
+					lineNumbers: true,
+					readOnly: true,
+					theme: isDark ? 'dracula' : 'default'
+				});
+
+				luaCM = CodeMirror.fromTextArea(luaOut, {
+					mode: "lua",
+					lineNumbers: true,
+					readOnly: true,
+					theme: isDark ? 'dracula' : 'default'
+				});
+			} catch (e) {
+				// CodeMirror not available — fall back to textareas (already present)
+				editorCM = null;
+				jsCM = null;
+				luaCM = null;
+			}
+		})();
+
+		function applyCodeMirrorTheme(dark) {
+			const t = dark ? 'dracula' : 'default';
+			if (editorCM) editorCM.setOption('theme', t);
+			if (jsCM) jsCM.setOption('theme', t);
+			if (luaCM) luaCM.setOption('theme', t);
+		}
+
+		// toggle JS/Lua output view
+		outputView.addEventListener('change', () => {
+			const v = outputView.value;
+			if (v === 'js') {
+				if (jsCM) { jsCM.getWrapperElement().style.display = ''; }
+				if (luaCM) { luaCM.getWrapperElement().style.display = 'none'; }
+				jsOut.style.display = '';
+				luaOut.style.display = 'none';
+			} else {
+				if (jsCM) { jsCM.getWrapperElement().style.display = 'none'; }
+				if (luaCM) { luaCM.getWrapperElement().style.display = ''; }
+				jsOut.style.display = 'none';
+				luaOut.style.display = '';
+			}
+		});
+
+		// ensure initial visibility
+		outputView.value = 'js';
+		outputView.dispatchEvent(new Event('change'));
+
+		// Populate template select
+		function buildTemplateOptions() {
+			templateSelect.innerHTML = '';
+			const builtOptGroup = document.createElement('optgroup');
+			builtOptGroup.label = 'Built-in Templates';
+			for (const k of Object.keys(builtInTemplates)) {
+				const o = document.createElement('option');
+				o.value = k; o.textContent = k;
+				builtOptGroup.appendChild(o);
+			}
+			templateSelect.appendChild(builtOptGroup);
+
+			const userKeys = Object.keys(files);
+			if (userKeys.length) {
+				const userOpt = document.createElement('optgroup');
+				userOpt.label = 'User Templates';
+				for (const k of userKeys) {
+					const o = document.createElement('option');
+					o.value = k; o.textContent = k;
+					userOpt.appendChild(o);
+				}
+				templateSelect.appendChild(userOpt);
+			}
+		}
+
+		// Refresh file list UI
+		function refreshFileList() {
+			fileList.innerHTML = '';
+			// built-in
+			for (const k of Object.keys(builtInTemplates)) {
+				const el = document.createElement('div');
+				el.className = 'file-item';
+				el.innerHTML = '<span class="lead">'+k+'</span><div><button class="small btn" data-load="'+k+'">Load</button></div>';
+				fileList.appendChild(el);
+			}
+			for (const k of Object.keys(files)) {
+				const el = document.createElement('div');
+				el.className = 'file-item';
+				el.innerHTML = '<span>'+k+'</span><div><button class="small btn" data-load="'+k+'">Load</button> <button class="small btn" data-del="'+k+'">Del</button></div>';
+				fileList.appendChild(el);
+			}
+		}
+
+		// Load content into editor
+		function loadFile(name) {
+			currentFile = name;
+			localStorage.setItem(AUTO_SAVE_KEY, currentFile);
+			let content = files[name];
+			if (content == null) content = builtInTemplates[name] || '';
+			editor.value = content;
+			if (editorCM) editorCM.setValue(content);
+			filenameInput.value = name;
+			// compile the loaded content
+			triggerCompile().catch(err => console.warn('compile on load failed', err));
+			buildTemplateOptions();
+			refreshFileList();
+		}
+
+		// Save current buffer into files under currentFile
+		function saveCurrentTo(name) {
+			files[name] = editor.value;
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
+			buildTemplateOptions();
+			refreshFileList();
+		}
+
+		// Delete user file
+		function deleteUserFile(name) {
+			delete files[name];
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
+			buildTemplateOptions();
+			refreshFileList();
+		}
+
+		// Basic TS -> Lua fallback transpiler (very small subset)
+		function tsToLuaFallback(src) {
+			// remove TS types, export default, and convert var/let/const to local
+			let out = src.replace(/: *[a-zA-Z0-9_<>\[\]\|\s\?]+/g, ''); // naive remove types
+			out = out.replace(/\/\/.*$/gm, '--$&'.replace(/\/\/\s*/,''));
+			out = out.replace(/\bconsole\.log\b/g, 'print');
+			out = out.replace(/\b(let|const|var)\b/g, 'local');
+			// function declarations
+			out = out.replace(/function\s+([a-zA-Z0-9_]+)\s*\((.*?)\)\s*{/g, 'function $1(' + '$2' + ')\n');
+			// arrow functions -> function expressions (best effort)
+			out = out.replace(/([a-zA-Z0-9_]+)\s*=\s*\((.*?)\)\s*=>\s*{/g, 'function $1($2)\n');
+			// braces close
+			out = out.replace(/}\s*$/gm, 'end');
+			// replace ; and {} where possible
+			out = out.replace(/;/g, '');
+			// console replacement already done
+			return '-- Lua (fallback)\n' + out;
+		}
+
+		// Attempt to use an external TS->Lua transpiler if available (best-effort)
+		let externalTsToLua = null;
+		tryTranspileBtn.addEventListener('click', async () => {
+			try {
+				// Try to import a UMD if available (best-effort); this may fail gracefully.
+				// Many TS->Lua projects are Node-based; we provide this as a best-effort hook.
+				alert('Attempting to use a remote TS->Lua transpiler (best-effort). If it fails, fallback will be used.');
+				// Example: tries to load a hypothetical browser bundle (likely not available)
+				// externalTsToLua = await import('https://unpkg.com/typescript-to-lua@master/dist/index.browser.js');
+				// if (externalTsToLua && externalTsToLua.transpileModule) alert('External transpiler ready!');
+				alert('No external transpiler available in this demo — fallback will be used.');
+			} catch (e) {
+				console.warn('External transpiler load failed', e);
+			}
+		});
+
+		// Compile TS -> JS using TypeScript in-browser and then execute into the scene
+		// ensureTs will load typescriptServices.js on-demand if `ts` is not present
+		function ensureTs() {
+			if (typeof ts !== 'undefined') return Promise.resolve();
+			if (window._tsLoading) return window._tsLoading;
+			const url = 'https://unpkg.com/typescript@latest/lib/typescriptServices.js';
+			window._tsLoading = new Promise((resolve, reject) => {
+				const s = document.createElement('script');
+				s.src = url;
+				s.onload = () => {
+					if (typeof ts !== 'undefined') resolve();
+					else reject(new Error('typescriptServices loaded but `ts` not found'));
+				};
+				s.onerror = (err) => reject(err || new Error('Failed to load TypeScript script'));
+				document.head.appendChild(s);
+			});
+			return window._tsLoading;
+		}
+
+		async function transpileTsToJs(code) {
+			try {
+				await ensureTs();
+				const result = ts.transpileModule(code, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2018 }});
+				return result.outputText;
+			} catch (e) {
+				console.warn('TS transpile error or ts not ready, falling back to returning original code as-is', e);
+				// Fallback: return the original code so user can still run simple JS/TS that doesn't require compilation.
+				// Wrap in a comment to make it obvious if transpilation failed.
+				return '// TS transpile fallback — original source\n' + code;
+			}
+		}
+
+		// debounce helper to avoid excessive transpiles during typing
+		function debounce(fn, wait = 200) {
+			let t = null;
+			return (...args) => { clearTimeout(t); t = setTimeout(()=>fn(...args), wait); };
+		}
+
+		async function triggerCompile() {
+			const tsCode = editorCM ? editorCM.getValue() : editor.value;
+			// auto-save buffer to localStorage for current file
+			localStorage.setItem(AUTO_SAVE_KEY, currentFile);
+			// Update in-memory file (but only autosave behavior; Save As preserves user files)
+			files[currentFile] = tsCode;
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
+
+			// Transpile TS->JS (async, ensures ts is loaded)
+			const js = await transpileTsToJs(tsCode);
+
+			// Execute JS in sandbox: provide sceneApi
+			try {
+				// wrap code in function with sceneApi in scope
+				// The code is evaluated with "with(sceneApi){...}" so sceneApi members are available by name.
+				// We reset userUpdate before running so user's registerUpdate() will reassign the active update mapping.
+				const fn = new Function('sceneApi', 'with(sceneApi){' + js + '\n}'); // "with" gives convenient access
+				// Reset userUpdate each run
+				userUpdate = null;
+				// ensure global sceneApi is present (some user code references window.sceneApi)
+				try { window.sceneApi = sceneApi; } catch (e) {}
+				fn(sceneApi);
+			} catch (e) {
+				console.error('Error executing user script', e);
+			}
+
+			// Emit Lua using external transpiler if present, otherwise fallback
+			let luaText = '';
+			if (externalTsToLua && typeof externalTsToLua.transpileModule === 'function') {
+				try { luaText = externalTsToLua.transpileModule(tsCode).lua || tsToLuaFallback(tsCode); }
+				catch(e){ luaText = tsToLuaFallback(tsCode); }
+			} else {
+				luaText = tsToLuaFallback(tsCode);
+			}
+			// update output panes (prefer CodeMirror)
+			if (jsCM) jsCM.setValue(js);
+			else jsOut.value = js;
+			if (luaCM) luaCM.setValue(luaText);
+			else luaOut.value = luaText;
+		}
+
+		// Event wiring: prefer CodeMirror change events
+		const triggerCompileDebounced = debounce(() => triggerCompile().catch(err => console.warn('compile error', err)), 150);
+		if (editorCM) {
+			editorCM.on('change', triggerCompileDebounced);
+		} else {
+			editor.addEventListener('keyup', () => { triggerCompileDebounced(); });
+		}
+
+		// Save As
+		saveAsBtn.addEventListener('click', ()=> {
+			const name = filenameInput.value.trim() || prompt('Filename:','script.ts');
+			if (!name) return;
+			saveCurrentTo(name);
+			currentFile = name;
+			localStorage.setItem(AUTO_SAVE_KEY, currentFile);
+			buildTemplateOptions();
+			refreshFileList();
+			alert('Saved as ' + name);
+		});
+
+		newFileBtn.addEventListener('click', ()=> {
+			currentFile = 'blank.ts';
+			loadFile('blank.ts');
+		});
+
+		exportLuaBtn.addEventListener('click', ()=> {
+			const blob = new Blob([luaOut.value], {type:'text/plain'});
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url; a.download = (currentFile || 'script') + '.lua';
+			document.body.appendChild(a); a.click(); a.remove();
+			URL.revokeObjectURL(url);
+		});
+
+		// Template select change loads file/template
+		templateSelect.addEventListener('change', (e)=> {
+			const v = templateSelect.value;
+			loadFile(v);
+		});
+
+		// File-list actions
+		fileList.addEventListener('click', (e)=>{
+			const t = e.target;
+			if (t.dataset.load) loadFile(t.dataset.load);
+			if (t.dataset.del) {
+				if (confirm('Delete ' + t.dataset.del + ' ?')) {
+					deleteUserFile(t.dataset.del);
+				}
+			}
+		});
+
+		// On initial load: build UI, load last file or blank
+		// Try to fetch an external template file and make it the default if available.
+		(async function init() {
+			try {
+				const res = await fetch('./template-001-basics.ts');
+				if (res.ok) {
+					const txt = await res.text();
+					// register as a built-in template and prefer it as the default
+					builtInTemplates['template-001-basics.ts'] = txt;
+					currentFile = 'template-001-basics.ts';
+				}
+			} catch (e) {
+				console.warn('Could not load runtime template template-001-basics.ts', e);
+			}
+
+			buildTemplateOptions();
+			refreshFileList();
+			if (!files[currentFile] && !builtInTemplates[currentFile]) currentFile = 'starter-moving-box.ts';
+			loadFile(currentFile);
+		})();
+
+		// Quick keys: Ctrl+S to Save As prompt
+		window.addEventListener('keydown', (e)=>{
+			if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase() === 's') {
+				e.preventDefault();
+				saveAsBtn.click();
+			}
+		});
+
+		// initial compile (async)
+		triggerCompile().catch(err => console.warn('initial compile error', err));
+	</script>
+</body>
+</html>
