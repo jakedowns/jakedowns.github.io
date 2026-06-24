@@ -1,1 +1,1242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Three.js Water — GPU Fluid Sim</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #000; font-family: 'Segoe UI', system-ui, sans-serif; touch-action: none; }
+    canvas { display: block; }
 
+    /* Drawer toggle */
+    #drawer-toggle {
+      position: fixed; top: 12px; left: 12px; z-index: 20;
+      width: 36px; height: 36px; border-radius: 8px;
+      background: rgba(0,0,0,0.55); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.5); font-size: 18px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .2s; font-family: inherit; pointer-events: auto;
+      user-select: none;
+    }
+    #drawer-toggle:hover { background: rgba(255,255,255,0.12); color: #fff; }
+    #drawer-toggle.open { left: 232px; }
+
+    /* Drawer panel */
+    #drawer {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: 220px; z-index: 19;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border-right: 1px solid rgba(255,255,255,0.06);
+      transform: translateX(-100%);
+      transition: transform .3s cubic-bezier(.4,0,.2,1);
+      padding: 56px 14px 20px;
+      overflow-y: auto;
+      pointer-events: auto;
+    }
+    #drawer.open { transform: translateX(0); }
+
+    .drawer-label {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 5px 0;
+      color: rgba(255,255,255,0.5);
+      font-size: 11px; font-weight: 500; gap: 8px;
+    }
+    .drawer-label input[type="range"] {
+      flex: 1; min-width: 0; height: 3px;
+      -webkit-appearance: none; appearance: none;
+      background: rgba(255,255,255,0.1); border-radius: 2px; outline: none;
+    }
+    .drawer-label input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 12px; height: 12px; border-radius: 50%;
+      background: #66b0ff; cursor: pointer; border: 2px solid rgba(255,255,255,0.15);
+      transition: transform .15s;
+    }
+    .drawer-label input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.25); }
+    .drawer-label .val {
+      min-width: 34px; text-align: right;
+      color: #88ccff; font-size: 11px; font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .drawer-sep { height: 1px; background: rgba(255,255,255,0.05); margin: 7px 0; }
+    .drawer-title {
+      color: rgba(255,255,255,0.25); font-size: 10px; font-weight: 600;
+      letter-spacing: 0.5px; text-transform: uppercase; padding: 4px 0 2px;
+    }
+    .drawer-btns { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+    .drawer-btns .btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 5px 10px; border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.55);
+      font-size: 11px; font-weight: 500; cursor: pointer;
+      transition: all .2s; font-family: inherit; line-height: 1.4;
+    }
+    .drawer-btns .btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    .drawer-btns .btn.active { background: rgba(102,176,255,0.18); border-color: rgba(102,176,255,0.35); color: #88ccff; }
+
+    #stats {
+      pointer-events: auto; position: fixed; bottom: 12px; right: 12px;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
+      padding: 8px 12px; min-width: 150px;
+      font-family: 'SF Mono','Menlo','Consolas',monospace; font-size: 10px;
+      color: rgba(255,255,255,0.45); user-select: none;
+    }
+    #stats .row { display: flex; justify-content: space-between; padding: 1px 0; }
+    #stats .v { color: #88ccff; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; }
+    #stats .v.good { color: #4cda7a; }
+    #stats .v.ok { color: #f0c040; }
+    #stats .v.bad { color: #ff5555; }
+    #fps-graph { margin-top: 4px; width: 100%; height: 28px; border-radius: 3px; background: rgba(0,0,0,0.3); display: block; }
+    #info {
+      position: fixed; bottom: 12px; left: 52px;
+      color: rgba(255,255,255,0.2); font-size: 10px;
+      font-family: 'SF Mono','Menlo',monospace; pointer-events: none; z-index: 10; user-select: none;
+    }
+    #info .mode-hint { color: rgba(255,255,255,0.35); }
+    @media (max-width: 600px) {
+      #drawer { width: 100%; }
+      #drawer-toggle.open { left: auto; right: 12px; }
+      #stats { bottom: 8px; right: 8px; padding: 6px 10px; min-width: 120px; font-size: 9px; }
+      #info { display: none; }
+    }
+  </style>
+</head>
+<body>
+<button id="drawer-toggle">☰</button>
+<div id="drawer">
+  <div class="drawer-label">Density <input type="range" id="density" min="8" max="1024" value="256" step="8"><span class="val" id="density-val">256</span></div>
+  <div class="drawer-label">FOV <input type="range" id="fov" min="20" max="300" value="100" step="1"><span class="val" id="fov-val">1.0</span></div>
+  <div class="drawer-label">Speed <input type="range" id="speed" min="0" max="500" value="64" step="1"><span class="val" id="speed-val">0.064</span></div>
+  <div class="drawer-label">Height <input type="range" id="height" min="-1000" max="1000" value="-1000" step="1"><span class="val" id="height-val">−10.00</span></div>
+  <div class="drawer-label">Damping <input type="range" id="damping" min="0" max="100" value="41" step="1"><span class="val" id="damping-val">0.410</span></div>
+  <div class="drawer-label">Orbit Speed <input type="range" id="orbit-speed" min="0.5" max="30" value="0.5" step="0.5"><span class="val" id="orbit-speed-val">0.5</span></div>
+  <div class="drawer-label">Smoothness <input type="range" id="smoothness" min="1" max="10" value="10" step="1"><span class="val" id="smoothness-val">10</span></div>
+  <div class="drawer-label">Radius <input type="range" id="radius" min="1" max="40" value="9" step="0.5"><span class="val" id="radius-val">0.9</span></div>
+  <div class="drawer-label">Ducks 
+    <select id="duck-count" style="flex:1;background:rgba(255,255,255,0.05);color:#88ccff;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 8px;font-size:11px;font-family:inherit;outline:none;cursor:pointer;">
+      <option value="100">100</option>
+      <option value="500">500</option>
+      <option value="1000">1 000</option>
+      <option value="5000">5 000</option>
+      <option value="10000">10 000</option>
+      <option value="100000">100 000</option>
+    </select>
+  </div>
+  <div class="drawer-sep"></div>
+  <div class="drawer-title">surface</div>
+  <div class="drawer-btns">
+    <button class="btn" id="hard-btn">Hard</button>
+    <button class="btn" id="caustics-btn">Caustics</button>
+    <button class="btn" id="reset-btn">↺ Reset</button>
+  </div>
+</div>
+<div id="stats">
+  <div class="row"><span>FPS</span><span class="v good" id="fps-val">--</span></div>
+  <div class="row"><span>Frame</span><span class="v" id="frame-val">--</span></div>
+  <div class="row"><span>Draws</span><span class="v" id="draws-val">--</span></div>
+  <div class="row"><span>Verts</span><span class="v" id="verts-val">--</span></div>
+  <div class="row"><span>Sim</span><span class="v" id="sim-val">--</span></div>
+  <canvas id="fps-graph" width="180" height="28"></canvas>
+</div>
+<div id="info"><span class="mode-hint">hover</span> ripple · drag orbit · scroll zoom · auto-rotate</div>
+
+<script type="importmap">{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+// ─── Constants ─────────────────────────────────────────────
+const PLANE_SIZE = 28;
+const SIM_BASE = 128;
+
+// ─── Scene ─────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x7ec8e3);
+
+const ambientLight = new THREE.AmbientLight(0x404060, 0.6);
+scene.add(ambientLight);
+const sunLight = new THREE.DirectionalLight(0xffeedd, 2.2);
+sunLight.position.set(4, 7, 3);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.width = 2048;
+sunLight.shadow.mapSize.height = 2048;
+sunLight.shadow.camera.near = 0.5;
+sunLight.shadow.camera.far = 30;
+sunLight.shadow.camera.left = -18;
+sunLight.shadow.camera.right = 18;
+sunLight.shadow.camera.top = 18;
+sunLight.shadow.camera.bottom = -18;
+sunLight.shadow.bias = -0.0008;
+scene.add(sunLight);
+
+const aspect = window.innerWidth / window.innerHeight;
+const CAM_DIST = 18;
+const frustumSize = 14;
+const camera = new THREE.OrthographicCamera(
+  -frustumSize * aspect, frustumSize * aspect,
+  frustumSize, -frustumSize, 0.1, 100
+);
+const a45 = CAM_DIST * Math.SQRT1_2;
+camera.position.set(a45, a45, 0);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.prepend(renderer.domElement);
+
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const gl = renderer.getContext();
+
+// ─── Orbit Controls ────────────────────────────────────────
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableRotate = false;
+controls.enablePan = false;
+controls.enableZoom = true;
+controls.zoomSpeed = 1.2;
+controls.target.set(0, 0, 0);
+controls.autoRotate = true;
+controls.autoRotateSpeed = 8;
+controls.update();
+
+let fovMul = 1.0;
+
+let autoRotateTimeout = null;
+
+controls.addEventListener('start', () => {
+  controls.autoRotate = false;
+  if (autoRotateTimeout) { clearTimeout(autoRotateTimeout); autoRotateTimeout = null; }
+});
+
+controls.addEventListener('end', () => {
+  if (autoRotateTimeout) clearTimeout(autoRotateTimeout);
+  autoRotateTimeout = setTimeout(() => {
+    controls.autoRotate = true;
+    autoRotateTimeout = null;
+  }, 3000);
+});
+
+
+controls.addEventListener('change', () => {
+  const d = camera.position.length();
+  const s = d * 0.35 * fovMul;
+  const a = window.innerWidth / window.innerHeight;
+  camera.left = -s * a;
+  camera.right = s * a;
+  camera.top = s;
+  camera.bottom = -s;
+  camera.updateProjectionMatrix();
+});
+
+// ─── Helper: XZ-plane geometry ─────────────────────────────
+function makeWaterGeo(w, d, segW, segD) {
+  const geo = new THREE.BufferGeometry();
+  const verts = [], uvs = [], idx = [];
+  const hw = w / 2, hd = d / 2;
+  for (let j = 0; j <= segD; j++) {
+    const z = -hd + (j / segD) * d;
+    for (let i = 0; i <= segW; i++) {
+      const x = -hw + (i / segW) * w;
+      verts.push(x, 0, z);
+      uvs.push(i / segW, j / segD);
+    }
+  }
+  for (let j = 0; j < segD; j++) {
+    for (let i = 0; i < segW; i++) {
+      const a = j * (segW + 1) + i;
+      const b = a + 1;
+      const c = (j + 1) * (segW + 1) + i;
+      const d_ = c + 1;
+      idx.push(a, b, c, b, d_, c);
+    }
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(idx);
+  return geo;
+}
+
+// ─── Fluid Simulation (FBO ping-pong) ──────────────────────
+let simRes = 256;
+let rtA, rtB, simQuad, simMat, simScene, simCam;
+let showCaustics = true;
+let hardSurface = false;
+let speedMul = 0.007;
+let heightMul = -4.0;
+let dampingVal_ = 0.99;
+let smoothness = 1;
+let radius = 1.0;
+
+function initSim(res) {
+  simRes = res;
+
+  const fmt = {
+    format: THREE.RGBAFormat,
+    type: THREE.FloatType,
+    minFilter: THREE.NearestFilter,
+    magFilter: THREE.NearestFilter,
+  };
+  rtA = new THREE.WebGLRenderTarget(res, res, fmt);
+  rtB = new THREE.WebGLRenderTarget(res, res, fmt);
+
+  // Seed initial state
+  const data = new Float32Array(res * res * 4);
+  for (let j = 0; j < res; j++) {
+    for (let i = 0; i < res; i++) {
+      const u = (i + 0.5) / res;
+      const v = (j + 0.5) / res;
+      const x = (u - 0.5) * PLANE_SIZE;
+      const z = (v - 0.5) * PLANE_SIZE;
+      let h = 0;
+      const d1 = Math.sqrt(x * x + z * z);
+      h += 0.04 * Math.exp(-d1 * d1 * 0.3);
+      h += (Math.random() - 0.5) * 0.003;
+      const off = (j * res + i) * 4;
+      data[off] = h;
+      data[off + 1] = 0;
+      data[off + 2] = 0;
+      data[off + 3] = 0;
+    }
+  }
+  const initTex = new THREE.DataTexture(data, res, res, THREE.RGBAFormat, THREE.FloatType);
+  initTex.needsUpdate = true;
+  renderer.copyTextureToTexture(new THREE.Vector2(0, 0), initTex, rtA.texture);
+  renderer.copyTextureToTexture(new THREE.Vector2(0, 0), initTex, rtB.texture);
+  initTex.dispose();
+
+  // Fullscreen quad
+  if (!simScene) {
+    simScene = new THREE.Scene();
+    simCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+  }
+  if (simQuad) { simMat.dispose(); simScene.remove(simQuad); }
+
+  simMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uState: { value: null },
+      uMouseUV: { value: new THREE.Vector2(0.5, 0.5) },
+      uMouseVel: { value: new THREE.Vector2(0, 0) },
+      uDt: { value: 0.008 },
+      uDamping: { value: 0.99 },
+      uRestDepth: { value: 0.5 },
+      uGravity: { value: 9.8 },
+      uForceStrength: { value: 0.4 },
+      uRadius: { value: 1.0 },
+      uGridRes: { value: new THREE.Vector2(res, res) },
+    },
+    vertexShader: `void main(){gl_Position=vec4(position,1.0);}`,
+    fragmentShader: `
+      precision highp float;
+      uniform sampler2D uState;
+      uniform vec2 uMouseUV;
+      uniform vec2 uMouseVel;
+      uniform float uDt;
+      uniform float uDamping;
+      uniform float uRestDepth;
+      uniform float uGravity;
+      uniform float uForceStrength;
+      uniform float uRadius;
+      uniform vec2 uGridRes;
+
+      void main() {
+        vec2 uv = gl_FragCoord.xy / uGridRes;
+        vec2 px = vec2(1.0) / uGridRes;
+
+        vec2 uvR = clamp(uv + vec2(px.x, 0.0), 0.0, 1.0);
+        vec2 uvL = clamp(uv - vec2(px.x, 0.0), 0.0, 1.0);
+        vec2 uvU = clamp(uv + vec2(0.0, px.y), 0.0, 1.0);
+        vec2 uvD = clamp(uv - vec2(0.0, px.y), 0.0, 1.0);
+
+        vec4 c  = texture2D(uState, uv);
+        vec4 r  = texture2D(uState, uvR);
+        vec4 l  = texture2D(uState, uvL);
+        vec4 uu = texture2D(uState, uvU);
+        vec4 dd = texture2D(uState, uvD);
+
+        float h  = c.r; float vx = c.g; float vz = c.b;
+        float hr = r.r; float vxr = r.g;
+        float hl = l.r; float vxl = l.g;
+        float hu = uu.r; float vzu = uu.b;
+        float hd = dd.r; float vzd = dd.b;
+
+        float H = uRestDepth;
+        float g = uGravity;
+        float inv2dx = uGridRes.x * 0.5;
+        float inv2dy = uGridRes.y * 0.5;
+
+        float dHux = ((H + hr) * vxr - (H + hl) * vxl) * inv2dx;
+        float dHvz = ((H + hu) * vzu - (H + hd) * vzd) * inv2dy;
+        float h_new = h - uDt * (dHux + dHvz);
+
+        float gdvx = g * (hr - hl) * inv2dx;
+        float gdvz = g * (hu - hd) * inv2dy;
+        float vx_new = (vx - uDt * gdvx) * uDamping;
+        float vz_new = (vz - uDt * gdvz) * uDamping;
+
+        h_new *= 0.999;
+
+        // Clamp to prevent simulation blowup
+        h_new = clamp(h_new, -0.4, 0.4);
+        vx_new = clamp(vx_new, -3.0, 3.0);
+        vz_new = clamp(vz_new, -3.0, 3.0);
+
+        // Absorbing sponge layer at boundaries (prevents reflective instability)
+        float edgeDist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+        float sponge = smoothstep(0.0, 0.08, edgeDist);
+        vx_new *= sponge;
+        vz_new *= sponge;
+        h_new *= mix(0.95, 1.0, sponge);
+
+        vec2 delta = uv - uMouseUV;
+        float dist2 = dot(delta, delta);
+        float gauss = exp(-dist2 * max(uGridRes.x * 0.5, 60.0) / uRadius);
+        float pull = length(uMouseVel) * 0.15;
+
+        h_new += gauss * 0.08 * uForceStrength;
+        h_new += gauss * pull * 0.3;
+        vx_new += uMouseVel.x * gauss * uForceStrength * 8.0;
+        vz_new += uMouseVel.y * gauss * uForceStrength * 8.0;
+
+        gl_FragColor = vec4(h_new, vx_new, vz_new, 0.0);
+      }
+    `
+  });
+  simQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), simMat);
+  simScene.add(simQuad);
+
+  // Update render info
+  document.getElementById('sim-val').textContent = res + '²';
+}
+
+initSim(96);
+
+let currentRT = rtA;
+let nextRT = rtB;
+
+function stepFluid(dt) {
+  simMat.uniforms.uDt.value = dt * speedMul;
+  simMat.uniforms.uState.value = currentRT.texture;
+  renderer.setRenderTarget(nextRT);
+  renderer.render(simScene, simCam);
+  renderer.setRenderTarget(null);
+  // swap
+  [currentRT, nextRT] = [nextRT, currentRT];
+}
+
+// ─── Water Surface ──────────────────────────────────────────
+let waterSegs = 96;
+let waterGeo, waterMesh, waterMat;
+
+function buildWater(segs) {
+  waterSegs = segs;
+  if (waterGeo) waterGeo.dispose();
+  if (waterMat) waterMat.dispose();
+  if (waterMesh) scene.remove(waterMesh);
+
+  waterGeo = makeWaterGeo(PLANE_SIZE, PLANE_SIZE, segs, segs);
+
+  const sunDir = new THREE.Vector3(4, 7, 3).normalize();
+  const sunCol = new THREE.Vector3(1.0, 0.92, 0.82);
+  const ambCol = new THREE.Vector3(0.2, 0.3, 0.4);
+
+  waterMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uHeightMap: { value: null },
+      uSegments: { value: segs },
+      uHeightScale: { value: -4.0 },
+      uSmoothness: { value: 1.0 },
+      uPlaneSize: { value: PLANE_SIZE },
+      uSunDir: { value: sunDir },
+      uSunColor: { value: sunCol },
+      uAmbientColor: { value: ambCol },
+      uHardSurface: { value: 0 },
+      uCaustics: { value: 1 },
+      uTime: { value: 0 },
+      uShadowMap: { value: null },
+      uShadowMatrix: { value: new THREE.Matrix4() },
+    },
+    vertexShader: `
+      uniform sampler2D uHeightMap;
+      uniform float uSegments;
+      uniform float uHeightScale;
+      uniform float uSmoothness;
+      uniform float uPlaneSize;
+      uniform float uHardSurface;
+
+      varying vec3 vWorldPos;
+      varying vec3 vNormal;
+      flat varying vec3 vFlatNormal;
+      varying float vHeight;
+
+      void main() {
+        vec2 step = vec2(1.0 / uSegments) * uSmoothness;
+        float h  = texture2D(uHeightMap, uv).r;
+        float hR = texture2D(uHeightMap, uv + vec2(step.x, 0.0)).r;
+        float hL = texture2D(uHeightMap, uv - vec2(step.x, 0.0)).r;
+        float hU = texture2D(uHeightMap, uv + vec2(0.0, step.y)).r;
+        float hD = texture2D(uHeightMap, uv - vec2(0.0, step.y)).r;
+
+        float worldStep = uPlaneSize / uSegments * uSmoothness;
+        float dfdx = (hR - hL) / (2.0 * worldStep) * uHeightScale;
+        float dfdz = (hU - hD) / (2.0 * worldStep) * uHeightScale;
+        vec3 flatN = normalize(vec3(-dfdx, 1.0, -dfdz));
+
+        vec3 pos = position;
+        float disp = h * uHeightScale;
+        pos.y = disp;
+
+        vec4 worldPos = modelMatrix * vec4(pos, 1.0);
+        vWorldPos = worldPos.xyz;
+        vHeight = disp;
+        vNormal = flatN;
+        vFlatNormal = flatN;
+
+        gl_Position = projectionMatrix * viewMatrix * worldPos;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uSunDir;
+      uniform vec3 uSunColor;
+      uniform vec3 uAmbientColor;
+      uniform float uHardSurface;
+      uniform float uCaustics;
+      uniform float uTime;
+      uniform float uPlaneSize;
+
+      varying vec3 vWorldPos;
+      varying vec3 vNormal;
+      flat varying vec3 vFlatNormal;
+      varying float vHeight;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      void main() {
+        vec3 normal;
+        if (uHardSurface > 0.5) {
+          normal = normalize(vFlatNormal);
+        } else {
+          vec3 dx = dFdx(vWorldPos);
+          vec3 dy = dFdy(vWorldPos);
+          normal = normalize(cross(dx, dy));
+        }
+
+        vec3 viewDir = normalize(cameraPosition - vWorldPos);
+        vec3 lightDir = normalize(uSunDir);
+
+        float NdL = max(dot(normal, lightDir), 0.0);
+        float NdV = max(dot(normal, viewDir), 0.0);
+
+        if (uCaustics < 0.5) {
+          // Flat grey surface
+          vec3 col = vec3(0.25) * (0.4 + 0.6 * NdL);
+          col = col / (col + vec3(1.0));
+          col = pow(col, vec3(1.0 / 2.2));
+          gl_FragColor = vec4(col, 1.0);
+          return;
+        }
+
+        float fresnel = pow(1.0 - NdV, 4.0);
+
+        vec3 deep = vec3(0.004, 0.018, 0.060);
+        vec3 shallow = vec3(0.010, 0.200, 0.240);
+        vec3 foam = vec3(0.250, 0.500, 0.480);
+
+        float waveH = smoothstep(0.0, 0.12, abs(vHeight));
+        float depthFactor = fresnel * 0.55 + waveH * 0.45;
+        vec3 waterColor = mix(deep, shallow, depthFactor);
+        waterColor = mix(waterColor, foam, waveH * 0.2);
+
+        // Caustics from height-field curvature (Laplacian)
+        float steepness = 1.0 - abs(dot(normal, vec3(0.0, 1.0, 0.0)));
+        float caustic = steepness * 0.6;
+        caustic = min(caustic, 0.5);
+
+        // Procedural caustic overlay
+        float proc = 0.0;
+        for (int i = 0; i < 4; i++) {
+          float a = float(i) * 1.2566 + uTime * 0.04;
+          vec2 d = vec2(sin(a), cos(a));
+          float ph = dot(vWorldPos.xz * 0.5, d) + uTime * (0.1 + float(i) * 0.02);
+          proc += abs(sin(ph * 1.6)) * 0.15;
+        }
+        caustic = mix(caustic, caustic * proc * 2.0, 0.5);
+        caustic = min(caustic * 1.5, 0.6);
+
+        float diffuse = NdL * 0.55 + 0.45;
+
+        vec3 halfVec = normalize(lightDir + viewDir);
+        float spec = pow(max(dot(normal, halfVec), 0.0), 512.0);
+
+        // Glitter
+        float glitter = 0.0;
+        float gDot = dot(normal, halfVec);
+        if (gDot > 0.97) {
+          vec2 gUv = vWorldPos.xz * 80.0;
+          float h = hash(floor(gUv));
+          if (h > 0.998) {
+            float sub = fract(gUv.x) * fract(gUv.y);
+            glitter = smoothstep(0.0, 0.5, sub) * 0.5;
+          }
+        }
+
+        vec3 col = waterColor * (uAmbientColor + uSunColor * diffuse);
+        col += vec3(0.3, 0.65, 0.55) * caustic * uSunColor * 1.0;
+        col += spec * uSunColor * 1.5;
+        col += vec3(1.0, 0.95, 0.8) * glitter;
+
+        col = col / (col + vec3(1.0));
+        col = pow(col, vec3(1.0 / 2.2));
+
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+    side: THREE.DoubleSide,
+  });
+
+  // Inject shadow‑map uniforms for receiving duck shadows
+  waterMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      'varying float vHeight;',
+      `varying float vHeight;
+varying vec4 vShadowCoord;
+uniform mat4 uShadowMatrix;`
+    );
+    shader.vertexShader = shader.vertexShader.replace(
+      'gl_Position = projectionMatrix * viewMatrix * worldPos;',
+      `vShadowCoord = uShadowMatrix * worldPos;
+gl_Position = projectionMatrix * viewMatrix * worldPos;`
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      'varying float vHeight;',
+      `varying float vHeight;
+varying vec4 vShadowCoord;
+uniform sampler2D uShadowMap;`
+    );
+    const shadowCode = `
+        vec4 sc = vShadowCoord / vShadowCoord.w;
+        float sh = 1.0;
+        if (sc.x >= 0.0 && sc.x <= 1.0 && sc.y >= 0.0 && sc.y <= 1.0) {
+          float sd = texture2D(uShadowMap, sc.xy).r;
+          if (sd < sc.z - 0.0008) sh = 0.35;
+        }
+        col *= (0.65 + 0.35 * sh);`;
+    // Apply shadow before both return sites
+    shader.fragmentShader = shader.fragmentShader.replace(
+      'gl_FragColor = vec4(col, 1.0);\n      }',
+      shadowCode + '\n        gl_FragColor = vec4(col, 1.0);\n      }'
+    );
+    shader.fragmentShader = shader.fragmentShader.replace(
+      'gl_FragColor = vec4(col, 1.0);\n          }',
+      shadowCode + '\n          gl_FragColor = vec4(col, 1.0);\n          }'
+    );
+  };
+
+  waterMesh = new THREE.Mesh(waterGeo, waterMat);
+  waterMesh.receiveShadow = true;
+  scene.add(waterMesh);
+  // Apply current uniform values from UI
+  waterMat.uniforms.uHeightScale.value = heightMul;
+  waterMat.uniforms.uSmoothness.value = smoothness;
+  waterMat.uniforms.uHardSurface.value = hardSurface ? 1 : 0;
+  waterMat.uniforms.uCaustics.value = showCaustics ? 1 : 0;
+}
+
+buildWater(256);
+
+// ─── Ghost Cursor Sphere ───────────────────────────────────
+const ghostGeo = new THREE.SphereGeometry(0.06, 20, 20);
+const ghostMat = new THREE.MeshBasicMaterial({
+  color: 0x66ccff, transparent: true, opacity: 0.4, depthWrite: false,
+});
+const ghost = new THREE.Mesh(ghostGeo, ghostMat);
+ghost.renderOrder = 999;
+scene.add(ghost);
+
+function uvToWorld(uv) {
+  return new THREE.Vector3((uv.x - 0.5) * PLANE_SIZE, 0, (uv.y - 0.5) * PLANE_SIZE);
+}
+
+// ─── Duck Rain ──────────────────────────────────────────────
+const DUCK_GRAVITY = 3.0;
+const DUCK_BOB_AMP = 0.025;
+const DUCK_BOB_SPEED = 2.5;
+const DUCK_RESPAWN_DELAY = 8;
+
+function mergeBufferGeos(geos) {
+  let totalPos = 0, totalIdx = 0;
+  for (const g of geos) {
+    totalPos += g.getAttribute('position').count;
+    totalIdx += g.index.count;
+  }
+  const pos = new Float32Array(totalPos * 3);
+  const nrm = new Float32Array(totalPos * 3);
+  const idx = totalIdx > 65535 ? new Uint32Array(totalIdx) : new Uint16Array(totalIdx);
+  let vo = 0, io = 0;
+  for (const g of geos) {
+    const p = g.getAttribute('position'), n = g.getAttribute('normal'), gi = g.index;
+    pos.set(p.array, vo * 3);
+    nrm.set(n.array, vo * 3);
+    for (let j = 0; j < gi.count; j++) idx[io + j] = gi.getX(j) + vo;
+    vo += p.count; io += gi.count;
+  }
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  merged.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  merged.setIndex(new THREE.BufferAttribute(idx, 1));
+  return merged;
+}
+
+function makeDuckGeo() {
+  const body = new THREE.SphereGeometry(0.15, 8, 6);
+  const bp = body.attributes.position;
+  for (let i = 0; i < bp.count; i++) {
+    bp.setXYZ(i, bp.getX(i) * 1.4, bp.getY(i) * 0.85, bp.getZ(i) * 0.6);
+  }
+  bp.needsUpdate = true;
+  body.computeVertexNormals();
+
+  const head = new THREE.SphereGeometry(0.09, 8, 6);
+  head.translate(0.22, 0.08, 0);
+  head.computeVertexNormals();
+
+  const beak = new THREE.ConeGeometry(0.03, 0.07, 4);
+  beak.rotateX(-0.3);
+  beak.translate(0.31, 0.05, 0);
+  beak.computeVertexNormals();
+
+  const geo = mergeBufferGeos([body, head, beak]);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+const duckGeo = makeDuckGeo();
+const duckMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, roughness: 0.6, metalness: 0.0 });
+let duckMesh, duckInstances;
+
+function rebuildDucks(count) {
+  if (duckMesh) { scene.remove(duckMesh); }
+  duckMesh = new THREE.InstancedMesh(duckGeo, duckMat, count);
+  duckMesh.castShadow = true;
+  scene.add(duckMesh);
+  duckInstances = [];
+  for (let i = 0; i < count; i++) {
+    duckInstances.push({
+      x: (Math.random() - 0.5) * PLANE_SIZE * 0.8,
+      z: (Math.random() - 0.5) * PLANE_SIZE * 0.8,
+      phase: Math.random() * Math.PI * 2,
+      heading: Math.random() * Math.PI * 2,
+      fallHeight: 2 + Math.random() * 4,
+      landed: false,
+      floatTimer: 0,
+    });
+  }
+}
+rebuildDucks(100);
+
+// ─── Height Readback ────────────────────────────────────────
+let heightBuffer = new Float32Array(simRes * simRes * 4);
+
+function ensureHeightBuffer() {
+  const needed = simRes * simRes * 4;
+  if (!heightBuffer || heightBuffer.length !== needed) {
+    heightBuffer = new Float32Array(needed);
+  }
+}
+
+function sampleHeight(wx, wz) {
+  const u = wx / PLANE_SIZE + 0.5;
+  const v = wz / PLANE_SIZE + 0.5;
+  if (u < 0 || u > 1 || v < 0 || v > 1) return 0;
+  const x = u * (simRes - 1);
+  const y = v * (simRes - 1);
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const ix1 = Math.min(ix + 1, simRes - 1);
+  const iy1 = Math.min(iy + 1, simRes - 1);
+  const s = simRes;
+  const h00 = heightBuffer[(iy * s + ix) * 4];
+  const h10 = heightBuffer[(iy * s + ix1) * 4];
+  const h01 = heightBuffer[(iy1 * s + ix) * 4];
+  const h11 = heightBuffer[(iy1 * s + ix1) * 4];
+  const h0 = h00 * (1 - fx) + h10 * fx;
+  const h1 = h01 * (1 - fy) + h11 * fy;
+  return h0 * (1 - fy) + h1 * fy;
+}
+
+// ─── Benchy ──────────────────────────────────────────────────
+let benchyGroup = null;
+{
+  const loader = new STLLoader();
+  loader.load(
+    'https://raw.githubusercontent.com/CreativeTools/3DBenchy/master/Single-part/3DBenchy.stl',
+    (geo) => {
+      geo.computeVertexNormals();
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xff6633,
+        roughness: 0.4,
+        metalness: 0.1,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      const box = new THREE.Box3().setFromObject(mesh);
+      const size = box.getSize(new THREE.Vector3());
+      const scale = 1.8 / Math.max(size.x, size.y, size.z);
+      mesh.scale.set(scale, scale, scale);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      const g = new THREE.Group();
+      g.add(mesh);
+      benchyGroup = g;
+      scene.add(g);
+    },
+    undefined,
+    (err) => console.warn('Benchy load failed:', err)
+  );
+}
+
+// ─── Controls Config ────────────────────────────────────────
+controls.enableRotate = true;
+controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_PAN };
+controls.update();
+
+// ─── Mouse / Touch Tracking ────────────────────────────────
+const mouseUV = new THREE.Vector2(0.5, 0.5);
+const mouseVel = new THREE.Vector2(0, 0);
+let lastMouseUV = new THREE.Vector2(0.5, 0.5);
+let mouseTime = 0;
+
+const raycaster = new THREE.Raycaster();
+const hitPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const hitPoint = new THREE.Vector3();
+
+function worldToUV(wx, wz) {
+  return new THREE.Vector2(wx / PLANE_SIZE + 0.5, wz / PLANE_SIZE + 0.5);
+}
+
+function updatePointer(clientX, clientY) {
+  const mx = (clientX / window.innerWidth) * 2 - 1;
+  const my = -(clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(new THREE.Vector2(mx, my), camera);
+  if (raycaster.ray.intersectPlane(hitPlane, hitPoint)) {
+    const uv = worldToUV(hitPoint.x, hitPoint.z);
+    mouseUV.set(uv.x, uv.y);
+  }
+}
+
+let dragging = false;
+
+renderer.domElement.addEventListener('pointermove', (e) => {
+  updatePointer(e.clientX, e.clientY);
+  if (e.buttons === 0) {
+    dragging = true;
+  }
+});
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  updatePointer(e.clientX, e.clientY);
+  if (e.button === 0) {
+    mouseVel.set(0, 0);
+  }
+});
+renderer.domElement.addEventListener('pointerup', (e) => {
+  dragging = false;
+});
+renderer.domElement.addEventListener('pointerleave', () => {
+  dragging = false;
+});
+
+// Touch for ripple (single touch)
+renderer.domElement.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    updatePointer(t.clientX, t.clientY);
+    lastMouseUV.copy(mouseUV);
+    mouseVel.set(0, 0);
+    mouseTime = performance.now();
+  }
+}, { passive: true });
+renderer.domElement.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    updatePointer(t.clientX, t.clientY);
+    dragging = true;
+  }
+}, { passive: true });
+renderer.domElement.addEventListener('touchend', () => {
+  dragging = false;
+});
+
+// ─── UI Controls ───────────────────────────────────────────
+const densitySlider = document.getElementById('density');
+const densityVal = document.getElementById('density-val');
+const fovSlider = document.getElementById('fov');
+const fovVal = document.getElementById('fov-val');
+const speedSlider = document.getElementById('speed');
+const speedVal = document.getElementById('speed-val');
+const heightSlider = document.getElementById('height');
+const heightVal = document.getElementById('height-val');
+const dampingSlider = document.getElementById('damping');
+const dampingVal = document.getElementById('damping-val');
+const hardBtn = document.getElementById('hard-btn');
+const resetBtn = document.getElementById('reset-btn');
+const orbitSpeedSlider = document.getElementById('orbit-speed');
+const orbitSpeedVal = document.getElementById('orbit-speed-val');
+const smoothnessSlider = document.getElementById('smoothness');
+const smoothnessVal = document.getElementById('smoothness-val');
+const radiusSlider = document.getElementById('radius');
+const radiusVal = document.getElementById('radius-val');
+const drawerToggle = document.getElementById('drawer-toggle');
+const drawer = document.getElementById('drawer');
+
+densitySlider.addEventListener('input', () => {
+  const v = parseInt(densitySlider.value);
+  densityVal.textContent = v;
+  const simRes_new = Math.max(32, Math.min(256, Math.round(v / 8) * 8));
+  if (simRes_new !== simRes) {
+    initSim(simRes_new);
+    currentRT = rtA;
+    nextRT = rtB;
+  }
+  buildWater(v);
+});
+
+fovSlider.addEventListener('input', () => {
+  fovMul = parseFloat(fovSlider.value) / 100;
+  fovVal.textContent = fovMul.toFixed(1);
+  controls.update(); // triggers 'change' to recompute frustum
+});
+
+speedSlider.addEventListener('input', () => {
+  speedMul = parseFloat(speedSlider.value) / 1000;
+  speedVal.textContent = speedMul.toFixed(3);
+});
+
+heightSlider.addEventListener('input', () => {
+  const sign = parseFloat(heightSlider.value) >= 0 ? '' : '−';
+  heightMul = parseFloat(heightSlider.value) / 100;
+  heightVal.textContent = sign + Math.abs(heightMul).toFixed(2);
+  if (waterMat) waterMat.uniforms.uHeightScale.value = heightMul;
+});
+
+dampingSlider.addEventListener('input', () => {
+  const raw = parseFloat(dampingSlider.value);
+  dampingVal_ = raw / 100;
+  dampingVal.textContent = dampingVal_.toFixed(3);
+});
+
+orbitSpeedSlider.addEventListener('input', () => {
+  controls.autoRotateSpeed = parseFloat(orbitSpeedSlider.value);
+  orbitSpeedVal.textContent = parseFloat(orbitSpeedSlider.value).toFixed(1);
+});
+
+drawerToggle.addEventListener('click', () => {
+  drawer.classList.toggle('open');
+  drawerToggle.classList.toggle('open');
+});
+
+smoothnessSlider.addEventListener('input', () => {
+  smoothness = parseFloat(smoothnessSlider.value);
+  smoothnessVal.textContent = smoothness;
+  if (waterMat) waterMat.uniforms.uSmoothness.value = smoothness;
+});
+
+radiusSlider.addEventListener('input', () => {
+  radius = parseFloat(radiusSlider.value) / 10;
+  radiusVal.textContent = radius.toFixed(1);
+  if (simMat) simMat.uniforms.uRadius.value = radius;
+});
+
+hardBtn.addEventListener('click', () => {
+  hardSurface = !hardSurface;
+  hardBtn.textContent = hardSurface ? 'Soft' : 'Hard';
+  hardBtn.classList.toggle('active', hardSurface);
+  if (waterMat) waterMat.uniforms.uHardSurface.value = hardSurface ? 1 : 0;
+});
+
+resetBtn.addEventListener('click', () => {
+  initSim(simRes);
+  currentRT = rtA;
+  nextRT = rtB;
+});
+
+const causticsBtn = document.getElementById('caustics-btn');
+causticsBtn.addEventListener('click', () => {
+  showCaustics = !showCaustics;
+  causticsBtn.classList.toggle('active', showCaustics);
+  if (waterMat) waterMat.uniforms.uCaustics.value = showCaustics ? 1 : 0;
+});
+
+const duckCountSelect = document.getElementById('duck-count');
+duckCountSelect.addEventListener('change', () => {
+  rebuildDucks(parseInt(duckCountSelect.value));
+});
+
+// ─── Keyboard Controls ──────────────────────────────────────
+const keys = new Set();
+document.addEventListener('keydown', (e) => {
+  keys.add(e.code);
+  if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) {
+    e.preventDefault();
+  }
+});
+document.addEventListener('keyup', (e) => keys.delete(e.code));
+
+// Inject WASD pan into animation loop
+const _panFwd = new THREE.Vector3();
+const _panRight = new THREE.Vector3();
+function updateKeyboardPan(dt) {
+  if (!keys.size) return;
+  _panFwd.set(0, 0, 0);
+  camera.getWorldDirection(_panFwd);
+  _panFwd.y = 0;
+  if (_panFwd.lengthSq() > 0.0001) _panFwd.normalize();
+  else _panFwd.set(0, 0, -1);
+  _panRight.crossVectors(_panFwd, camera.up).normalize();
+  const spd = 8 * dt;
+  if (keys.has('KeyW') || keys.has('ArrowUp'))    controls.target.addScaledVector(_panFwd,  spd);
+  if (keys.has('KeyS') || keys.has('ArrowDown'))  controls.target.addScaledVector(_panFwd, -spd);
+  if (keys.has('KeyA') || keys.has('ArrowLeft'))  controls.target.addScaledVector(_panRight, -spd);
+  if (keys.has('KeyD') || keys.has('ArrowRight')) controls.target.addScaledVector(_panRight,  spd);
+}
+
+// ─── Resize ────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  const a = window.innerWidth / window.innerHeight;
+  const d = camera.position.length();
+  const s = d * 0.35;
+  camera.left = -s * a;
+  camera.right = s * a;
+  camera.top = s;
+  camera.bottom = -s;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  const gc = document.getElementById('fps-graph');
+  const dpr = window.devicePixelRatio || 1;
+  gc.width = gc.clientWidth * dpr;
+  gc.height = gc.clientHeight * dpr;
+  gc.getContext('2d').scale(dpr, dpr);
+});
+
+// ─── FPS Monitor ──────────────────────────────────────────
+const fpsCanvas = document.getElementById('fps-graph');
+const fpsCtx = fpsCanvas.getContext('2d');
+{
+  const dpr = window.devicePixelRatio || 1;
+  fpsCanvas.width = fpsCanvas.clientWidth * dpr;
+  fpsCanvas.height = fpsCanvas.clientHeight * dpr;
+  fpsCtx.scale(dpr, dpr);
+}
+
+const MAX_SAMPLES = 100;
+const frameTimes = [];
+
+function drawGraph() {
+  const w = fpsCanvas.clientWidth;
+  const h = fpsCanvas.clientHeight;
+  const ctx = fpsCtx;
+  ctx.clearRect(0, 0, w, h);
+  const len = frameTimes.length;
+  if (len < 2) return;
+
+  const maxT = 33.33;
+  ctx.beginPath();
+  for (let i = 0; i < len; i++) {
+    const x = (i / MAX_SAMPLES) * w;
+    const t = Math.min(frameTimes[i], maxT);
+    const y = h - (t / maxT) * h;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = '#4cda7a';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.lineTo((len / MAX_SAMPLES) * w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, 'rgba(76,218,122,0.2)');
+  g.addColorStop(1, 'rgba(76,218,122,0.0)');
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // 16.67ms ref
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 4]);
+  const y16 = h - (16.67 / maxT) * h;
+  ctx.beginPath();
+  ctx.moveTo(0, y16);
+  ctx.lineTo(w, y16);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// ─── Animation Loop ────────────────────────────────────────
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const elapsed = clock.getElapsedTime();
+
+  // Update mouse velocity
+  if (dragging) {
+    const dUV = mouseUV.clone().sub(lastMouseUV);
+    const invDt = dt > 0.001 ? 1 / dt : 60;
+    mouseVel.copy(dUV.multiplyScalar(invDt));
+    lastMouseUV.copy(mouseUV);
+  } else if (!dragging) {
+    mouseVel.multiplyScalar(0.9);
+    if (mouseVel.length() < 0.001) mouseVel.set(0, 0);
+  }
+
+  // Send to sim
+  simMat.uniforms.uMouseUV.value.copy(mouseUV);
+  simMat.uniforms.uMouseVel.value.copy(mouseVel);
+  simMat.uniforms.uDamping.value = dampingVal_;
+  simMat.uniforms.uRadius.value = radius;
+
+  // Step fluid
+  stepFluid(dt);
+
+  // Update water material
+  if (waterMat) {
+    waterMat.uniforms.uHeightMap.value = currentRT.texture;
+    waterMat.uniforms.uSegments.value = waterSegs;
+    waterMat.uniforms.uTime.value = elapsed;
+    if (sunLight.shadow.map) {
+      waterMat.uniforms.uShadowMap.value = sunLight.shadow.map.texture;
+      if (!waterMat._sMtx) waterMat._sMtx = new THREE.Matrix4();
+      if (!waterMat._tMtx) {
+        waterMat._tMtx = new THREE.Matrix4();
+        waterMat._tMtx.makeScale(0.5, 0.5, 0.5);
+        waterMat._tMtx.setPosition(0.5, 0.5, 0.5);
+      }
+      waterMat._sMtx.multiplyMatrices(
+        sunLight.shadow.camera.projectionMatrix,
+        sunLight.shadow.camera.matrixWorldInverse
+      );
+      waterMat._sMtx.premultiply(waterMat._tMtx);
+      waterMat.uniforms.uShadowMatrix.value = waterMat._sMtx;
+    }
+  }
+
+  // Position ghost sphere at cursor
+  ghost.position.copy(uvToWorld(mouseUV));
+  const ghostScale = radius * 0.04;
+  ghost.scale.setScalar(ghostScale);
+  ghost.position.y = ghostScale * 0.5;
+
+  // ─── Duck & Benchy update ──────────────────────────────────
+  ensureHeightBuffer();
+  try {
+    renderer.readRenderTargetPixels(currentRT, 0, 0, simRes, simRes, heightBuffer);
+  } catch (_) {}
+
+  const duckMat4 = new THREE.Matrix4();
+  const duckQuat = new THREE.Quaternion();
+  const duckVec = new THREE.Vector3();
+  const qH = new THREE.Quaternion();
+  const qT = new THREE.Quaternion();
+  const sVec = new THREE.Vector3(1, 1, 1);
+  const upVec = new THREE.Vector3(0, 1, 0);
+  const zVec = new THREE.Vector3(0, 0, 1);
+  for (let i = 0; i < duckInstances.length; i++) {
+    const d = duckInstances[i];
+    if (d.fallHeight > 0) {
+      d.fallHeight -= DUCK_GRAVITY * dt;
+      if (d.fallHeight <= 0) { d.fallHeight = 0; d.landed = true; }
+    } else if (d.landed) {
+      d.floatTimer += dt;
+      if (d.floatTimer > DUCK_RESPAWN_DELAY + Math.random() * 4) {
+        d.x = (Math.random() - 0.5) * PLANE_SIZE * 0.8;
+        d.z = (Math.random() - 0.5) * PLANE_SIZE * 0.8;
+        d.fallHeight = 2 + Math.random() * 4;
+        d.landed = false;
+        d.floatTimer = 0;
+        d.heading = Math.random() * Math.PI * 2;
+      }
+    }
+    const waterH = sampleHeight(d.x, d.z);
+    const waterY = waterH * heightMul;
+    let y = waterY;
+    if (d.fallHeight > 0) {
+      y += d.fallHeight;
+    } else {
+      y += Math.sin(elapsed * DUCK_BOB_SPEED + d.phase) * DUCK_BOB_AMP;
+    }
+    const tiltAngle = d.fallHeight > 0 ? -0.4 : 0;
+    qH.setFromAxisAngle(upVec, d.heading);
+    qT.setFromAxisAngle(zVec, tiltAngle);
+    duckQuat.multiplyQuaternions(qH, qT);
+    duckVec.set(d.x, y, d.z);
+    duckMat4.compose(duckVec, duckQuat, sVec);
+    duckMesh.setMatrixAt(i, duckMat4);
+  }
+  duckMesh.instanceMatrix.needsUpdate = true;
+
+  if (benchyGroup) {
+    const ch = sampleHeight(0, 0);
+    const cy = ch * heightMul;
+    const hx = sampleHeight(0.2, 0);
+    const hz = sampleHeight(0, 0.2);
+    benchyGroup.position.y = cy + Math.sin(elapsed * 1.2) * 0.02;
+    benchyGroup.rotation.z = (hx - ch) * heightMul * 2;
+    benchyGroup.rotation.x = -(hz - ch) * heightMul * 2;
+  }
+
+  controls.update();
+  updateKeyboardPan(dt);
+  renderer.render(scene, camera);
+
+  // Stats
+  const info = renderer.info;
+  document.getElementById('draws-val').textContent = info.render.calls;
+  document.getElementById('verts-val').textContent = info.render.triangles * 3 || '--';
+
+  const ft = dt * 1000;
+  frameTimes.push(ft);
+  if (frameTimes.length > MAX_SAMPLES) frameTimes.shift();
+
+  const avgFt = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
+  const fps = avgFt > 0 ? 1000 / avgFt : 0;
+  const fpsEl = document.getElementById('fps-val');
+  const frameEl = document.getElementById('frame-val');
+  fpsEl.textContent = fps.toFixed(0);
+  frameEl.textContent = ft.toFixed(1);
+
+  if (fps >= 55) { fpsEl.className = 'v good'; frameEl.className = 'v good'; }
+  else if (fps >= 30) { fpsEl.className = 'v ok'; frameEl.className = 'v ok'; }
+  else { fpsEl.className = 'v bad'; frameEl.className = 'v bad'; }
+
+  drawGraph();
+}
+
+animate();
+
+// Log which backend is in use
+const isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+console.log(`🌊 Water sim | Backend: ${isWebGL2 ? 'WebGL2' : 'WebGL'} | Sim: ${simRes}² | Mesh: ${waterSegs}²`);
+console.log(`💡 TSL upgrade: import from 'three/tsl' (WebGPU build) and use Fn/storage/compute for TSL compute shaders`);
+</script>
+</body>
+</html>
