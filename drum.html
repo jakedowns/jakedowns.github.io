@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Bezel Drummer & IMU Visualizer</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    /* Custom styling for sliders and glowing animations */
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #38bdf8;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+    }
+    .glow-cyan {
+      box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+    }
+    .glow-pink {
+      box-shadow: 0 0 20px rgba(236, 72, 153, 0.4);
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans select-none overflow-x-hidden touch-manipulation">
+
+  <header class="flex-none p-4 bg-slate-900/90 border-b border-slate-800 backdrop-blur flex justify-between items-center z-10">
+    <div class="flex items-center space-x-2">
+      <div class="w-3 h-3 rounded-full bg-cyan-400 animate-pulse"></div>
+      <h1 class="text-xs sm:text-sm font-bold tracking-wider uppercase text-slate-100">Bezel Drummer <span class="text-[10px] font-mono text-cyan-400">iOS IMU v1.0</span></h1>
+    </div>
+    <button id="btnPermission" onclick="initSensorsAndAudio()" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold uppercase rounded-lg shadow-lg glow-cyan transition active:scale-95">
+      Start Sensor & Audio
+    </button>
+  </header>
+
+  <main class="flex-1 overflow-y-auto p-3 space-y-3">
+
+    <!-- Status Banner for iOS permission & HTTPS notice -->
+    <div id="statusBanner" class="p-3 bg-slate-900 border border-slate-800 rounded-xl flex flex-col sm:flex-row gap-1 sm:gap-0 items-start sm:items-center justify-between text-xs text-slate-400">
+      <div class="flex items-center space-x-2">
+        <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+        <span>Status: <strong id="statusText" class="text-amber-400">Awaiting User Gesture</strong></span>
+      </div>
+      <div class="flex items-center space-x-3 text-[11px] font-mono">
+        <span id="rateDisplay" class="text-slate-500">0 Hz IMU</span>
+        <span class="text-slate-600">| HTTPS Required</span>
+      </div>
+    </div>
+
+    <!-- 3D Proxy & Telemetry Split Screen Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <!-- Three.js Visualizer Box -->
+      <div class="relative bg-slate-900 border border-slate-800 rounded-xl h-60 overflow-hidden flex flex-col items-center justify-center">
+        <div class="absolute top-2 left-3 text-[10px] uppercase font-semibold text-slate-400 tracking-wider z-10 flex items-center gap-2">
+          <span>3D World Space Proxy</span>
+          <span id="tapGlowBadge" class="hidden px-2 py-0.5 rounded text-[9px] font-bold text-white uppercase shadow-md"></span>
+        </div>
+        <!-- 3D Canvas Container -->
+        <div id="threeContainer" class="w-full h-full"></div>
+      </div>
+
+      <!-- Real-Time Rolling Telemetry Line Chart -->
+      <div class="relative bg-slate-900 border border-slate-800 rounded-xl h-60 p-2.5 flex flex-col">
+        <div class="flex justify-between items-center mb-1 px-1">
+          <span class="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Orientation & Impulse Graph</span>
+          <div class="flex items-center space-x-2 text-[9px] sm:text-[10px] font-mono">
+            <span class="text-cyan-400">● Roll</span>
+            <span class="text-emerald-400">● Pitch</span>
+            <span class="text-purple-400">● Yaw</span>
+            <span class="text-pink-500">● Tap Impulse</span>
+          </div>
+        </div>
+        <canvas id="telemetryGraph" class="w-full flex-1 bg-slate-950 rounded-lg border border-slate-800/50"></canvas>
+      </div>
+    </div>
+
+    <!-- Dynamic Telemetry Readouts -->
+    <div class="grid grid-cols-3 gap-2 font-mono text-center text-xs">
+      <div class="bg-slate-900/90 border border-slate-800 p-2.5 rounded-xl">
+        <div class="text-[10px] text-slate-400 uppercase font-sans">Roll (&gamma;)</div>
+        <div id="valRoll" class="text-base font-bold text-cyan-400 mt-0.5">0.0°</div>
+      </div>
+      <div class="bg-slate-900/90 border border-slate-800 p-2.5 rounded-xl">
+        <div class="text-[10px] text-slate-400 uppercase font-sans">Pitch (&beta;)</div>
+        <div id="valPitch" class="text-base font-bold text-emerald-400 mt-0.5">0.0°</div>
+      </div>
+      <div class="bg-slate-900/90 border border-slate-800 p-2.5 rounded-xl">
+        <div class="text-[10px] text-slate-400 uppercase font-sans">Yaw (&alpha;)</div>
+        <div id="valYaw" class="text-base font-bold text-purple-400 mt-0.5">0.0°</div>
+      </div>
+    </div>
+
+    <!-- Interactive Manual Sound Trigger Pads -->
+    <div class="grid grid-cols-2 gap-3 my-2">
+      <button id="padLeft" onmousedown="triggerSound('left', 1.0)" ontouchstart="event.preventDefault(); triggerSound('left', 1.0)" class="h-28 bg-gradient-to-br from-slate-900 to-cyan-950 border-2 border-cyan-500/40 hover:border-cyan-400 rounded-2xl flex flex-col items-center justify-center space-y-1 transition active:scale-95 glow-cyan">
+        <span class="text-2xl">🥁</span>
+        <span class="text-sm font-black text-cyan-300 uppercase tracking-widest">BOOM (Left)</span>
+        <span class="text-[10px] text-cyan-500/80 font-mono">808 Sub Kick</span>
+      </button>
+
+      <button id="padRight" onmousedown="triggerSound('right', 1.0)" ontouchstart="event.preventDefault(); triggerSound('right', 1.0)" class="h-28 bg-gradient-to-br from-slate-900 to-pink-950 border-2 border-pink-500/40 hover:border-pink-400 rounded-2xl flex flex-col items-center justify-center space-y-1 transition active:scale-95 glow-pink">
+        <span class="text-2xl">🪘</span>
+        <span class="text-sm font-black text-pink-300 uppercase tracking-widest">BAP (Right)</span>
+        <span class="text-[10px] text-pink-500/80 font-mono">Filtered Snare</span>
+      </button>
+    </div>
+
+    <!-- Sensitivity Calibration Controls -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+      <div class="flex justify-between items-center">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">Tap Sensing Calibration</h2>
+        <button onclick="recalibrateZero()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] uppercase font-mono border border-slate-700">Zero Orientation</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <!-- Sensitivity Threshold Slider -->
+        <div>
+          <div class="flex justify-between text-slate-400 mb-1">
+            <span>Impulse Threshold Magnitude</span>
+            <span id="lblThreshold" class="font-mono text-cyan-400">12.0 m/s²</span>
+          </div>
+          <input id="sliderThreshold" type="range" min="4" max="30" step="0.5" value="12" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+        </div>
+
+        <!-- Debounce Window Slider -->
+        <div>
+          <div class="flex justify-between text-slate-400 mb-1">
+            <span>Debounce Timeout</span>
+            <span id="lblDebounce" class="font-mono text-cyan-400">140 ms</span>
+          </div>
+          <input id="sliderDebounce" type="range" min="50" max="400" step="10" value="140" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+        </div>
+
+        <!-- High-Pass Filter Alpha Slider -->
+        <div>
+          <div class="flex justify-between text-slate-400 mb-1">
+            <span>High-Pass Filter Weight (&alpha;)</span>
+            <span id="lblFilter" class="font-mono text-cyan-400">0.85</span>
+          </div>
+          <input id="sliderFilter" type="range" min="0.1" max="0.95" step="0.05" value="0.85" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer">
+        </div>
+      </div>
+    </div>
+
+    <!-- Tap Event Log Box -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col">
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Tap Impulse Stream</span>
+        <button onclick="clearLogs()" class="text-[10px] text-slate-500 hover:text-slate-300">Clear</button>
+      </div>
+      <div id="logContainer" class="h-24 overflow-y-auto space-y-1 font-mono text-[11px] text-slate-400 pr-1">
+        <div class="text-slate-600 italic">Tap left/right phone side bezels to trigger drum sounds...</div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    /* Global Application State */
+    let audioCtx = null;
+    let isSensorsActive = false;
+
+    // Sensor Orientation Variables
+    let orientation = { alpha: 0, beta: 0, gamma: 0 };
+    let orientationZero = { alpha: 0, beta: 0, gamma: 0 };
+
+    // Acceleration Filtering Variables
+    let rawAccel = { x: 0, y: 0, z: 0 };
+    let filteredAccel = { x: 0, y: 0, z: 0 };
+    let lastAccel = { x: 0, y: 0, z: 0 };
+    let impulsePeak = 0;
+
+    // Sensor Calibration Thresholds
+    let threshold = 12.0;
+    let debounceMs = 140;
+    let filterAlpha = 0.85;
+    let lastTapTime = 0;
+
+    // IMU Sampling Rate Counter
+    let eventCount = 0;
+    let lastRateCalc = performance.now();
+
+    // Rolling Graph Data Buffer
+    const maxGraphSamples = 120;
+    let graphData = {
+      roll: new Array(maxGraphSamples).fill(0),
+      pitch: new Array(maxGraphSamples).fill(0),
+      yaw: new Array(maxGraphSamples).fill(0),
+      impulse: new Array(maxGraphSamples).fill(0)
+    };
+
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    // Deep synthesized 808-style "BOOM" (Left Bezel)
+    function playBoom(intensity = 1.0) {
+      if (!audioCtx) return;
+
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      // Exponential pitch drop from 140Hz down to 35Hz
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(140, now);
+      osc.frequency.exponentialRampToValueAtTime(35, now + 0.16);
+
+      // Volume Decay Envelope
+      const peakGain = Math.min(1.2, 0.6 + intensity * 0.4);
+      gain.gain.setValueAtTime(peakGain, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.40);
+    }
+
+    // Crisp synthesized filtered "BAP" Snare (Right Bezel)
+    function playBap(intensity = 1.0) {
+      if (!audioCtx) return;
+
+      const now = audioCtx.currentTime;
+
+      // 1. Tonal body oscillator
+      const bodyOsc = audioCtx.createOscillator();
+      const bodyGain = audioCtx.createGain();
+      bodyOsc.type = 'triangle';
+      bodyOsc.frequency.setValueAtTime(220, now);
+      bodyOsc.frequency.exponentialRampToValueAtTime(80, now + 0.1);
+
+      bodyGain.gain.setValueAtTime(0.5 * intensity, now);
+      bodyGain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+
+      bodyOsc.connect(bodyGain);
+      bodyGain.connect(audioCtx.destination);
+      bodyOsc.start(now);
+      bodyOsc.stop(now + 0.13);
+
+      // 2. White noise snap buffer
+      const bufferSize = audioCtx.sampleRate * 0.15;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+
+      // High-pass filter for crisp snare response
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.value = 800;
+
+      const noiseGain = audioCtx.createGain();
+      noiseGain.gain.setValueAtTime(0.8 * intensity, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+      noise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(audioCtx.destination);
+
+      noise.start(now);
+      noise.stop(now + 0.16);
+    }
+
+    let scene, camera, renderer, phoneMesh, phoneEdgeGlow;
+
+    function initThreeJS() {
+      const container = document.getElementById('threeContainer');
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+      camera.position.set(0, 0, 7);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.appendChild(renderer.domElement);
+
+      // Lighting Setup
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0x38bdf8, 0.8);
+      dirLight.position.set(5, 10, 7);
+      scene.add(dirLight);
+
+      // Phone Box Geometry
+      const geometry = new THREE.BoxGeometry(1.8, 3.6, 0.35);
+
+      // Custom face materials for phone screen/bezels
+      const sideMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8, roughness: 0.2 });
+      const frontMat = new THREE.MeshStandardMaterial({ color: 0x020617, roughness: 0.1 });
+      const backMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.4 });
+
+      const materials = [
+        sideMat,  // Right Side
+        sideMat,  // Left Side
+        sideMat,  // Top Edge
+        sideMat,  // Bottom Edge
+        frontMat, // Front Display
+        backMat   // Back Case
+      ];
+
+      phoneMesh = new THREE.Mesh(geometry, materials);
+      scene.add(phoneMesh);
+
+      // Highlighted Edges for Tap Feedback
+      const edgesGeom = new THREE.EdgesGeometry(geometry);
+      const edgeMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2, transparent: true, opacity: 0.4 });
+      phoneEdgeGlow = new THREE.LineSegments(edgesGeom, edgeMat);
+      phoneMesh.add(phoneEdgeGlow);
+
+      window.addEventListener('resize', onWindowResize);
+    }
+
+    function onWindowResize() {
+      const container = document.getElementById('threeContainer');
+      if (!container || !renderer || !camera) return;
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
+    }
+
+    function renderGraph() {
+      const canvas = document.getElementById('telemetryGraph');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+
+      if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+      }
+
+      const w = canvas.width;
+      const h = canvas.height;
+      const centerY = h / 2;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid Lines
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, centerY); ctx.lineTo(w, centerY);
+      ctx.moveTo(0, h * 0.25); ctx.lineTo(w, h * 0.25);
+      ctx.moveTo(0, h * 0.75); ctx.lineTo(w, h * 0.75);
+      ctx.stroke();
+
+      function drawSeries(data, color, minVal, maxVal, isImpulse = false) {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = isImpulse ? 2 : 1.5;
+
+        for (let i = 0; i < data.length; i++) {
+          const x = (i / (data.length - 1)) * w;
+          const norm = (data[i] - minVal) / (maxVal - minVal);
+          const y = h - (norm * h);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      // Plot Series Streams
+      drawSeries(graphData.roll, '#22d3ee', -90, 90);
+      drawSeries(graphData.pitch, '#34d399', -90, 90);
+      drawSeries(graphData.yaw, '#c084fc', 0, 360);
+      drawSeries(graphData.impulse, '#ec4899', 0, 40, true);
+    }
+
+    async function initSensorsAndAudio() {
+      initAudio();
+
+      const btn = document.getElementById('btnPermission');
+      const statusText = document.getElementById('statusText');
+
+      try {
+        // Request Motion Permission on iOS 13+
+        if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+          const motionPermission = await DeviceMotionEvent.requestPermission();
+          if (motionPermission !== 'granted') {
+            throw new Error('DeviceMotion permission denied by user.');
+          }
+        }
+
+        // Request Orientation Permission on iOS 13+
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+          await DeviceOrientationEvent.requestPermission();
+        }
+
+        // Attach Sensor Event Handlers
+        window.addEventListener('devicemotion', handleMotion, true);
+        window.addEventListener('deviceorientation', handleOrientation, true);
+
+        isSensorsActive = true;
+        btn.classList.add('hidden');
+        statusText.textContent = 'Sensors Active';
+        statusText.className = 'text-emerald-400 font-bold';
+
+      } catch (err) {
+        console.error("Sensor Initialization Error:", err);
+        statusText.textContent = 'Error / Permission Denied';
+        statusText.className = 'text-rose-400 font-bold';
+        alert('Could not start sensors: ' + err.message + '\n\nNote: iOS requires serving over HTTPS.');
+      }
+    }
+
+    function handleOrientation(e) {
+      if (e.alpha === null) return;
+      orientation.alpha = e.alpha || 0; // Yaw
+      orientation.beta = e.beta || 0;   // Pitch
+      orientation.gamma = e.gamma || 0; // Roll
+    }
+
+    function handleMotion(e) {
+      eventCount++;
+
+      // Prefer linear acceleration (excluding gravity) if available
+      const acc = e.acceleration && e.acceleration.x !== null ? e.acceleration : e.accelerationIncludingGravity;
+      if (!acc || acc.x === null) return;
+
+      rawAccel.x = acc.x || 0;
+      rawAccel.y = acc.y || 0;
+      rawAccel.z = acc.z || 0;
+
+      // High-Pass Filter for transient impact detection
+      filteredAccel.x = filterAlpha * (filteredAccel.x + rawAccel.x - lastAccel.x);
+      filteredAccel.y = filterAlpha * (filteredAccel.y + rawAccel.y - lastAccel.y);
+      filteredAccel.z = filterAlpha * (filteredAccel.z + rawAccel.z - lastAccel.z);
+
+      lastAccel.x = rawAccel.x;
+      lastAccel.y = rawAccel.y;
+      lastAccel.z = rawAccel.z;
+
+      const now = performance.now();
+      const lateralImpulse = filteredAccel.x;
+      const absImpulse = Math.abs(lateralImpulse);
+      impulsePeak = absImpulse;
+
+      // Check threshold & debounce
+      if (absImpulse >= threshold && (now - lastTapTime) > debounceMs) {
+        lastTapTime = now;
+        const normalizedIntensity = Math.min(2.0, absImpulse / threshold);
+
+        // Sign of lateral X impulse determines left vs right bezel impact
+        if (lateralImpulse > 0) {
+          triggerSound('right', normalizedIntensity);
+        } else {
+          triggerSound('left', normalizedIntensity);
+        }
+      }
+    }
+
+    function triggerSound(side, intensity = 1.0) {
+      const nowStr = new Date().toLocaleTimeString().split(' ')[0] + '.' + Math.floor(performance.now() % 1000);
+
+      if (side === 'left') {
+        playBoom(intensity);
+        flashUI('left', intensity);
+        addLogEntry(`[${nowStr}] 🥁 BOOM (Left) - Magnitude: ${impulsePeak.toFixed(1)} m/s²`, 'text-cyan-400');
+      } else {
+        playBap(intensity);
+        flashUI('right', intensity);
+        addLogEntry(`[${nowStr}] 🪘 BAP (Right) - Magnitude: ${impulsePeak.toFixed(1)} m/s²`, 'text-pink-400');
+      }
+    }
+
+    function flashUI(side, intensity) {
+      const pad = side === 'left' ? document.getElementById('padLeft') : document.getElementById('padRight');
+      const badge = document.getElementById('tapGlowBadge');
+
+      pad.classList.add('scale-95', 'brightness-150');
+      setTimeout(() => pad.classList.remove('scale-95', 'brightness-150'), 120);
+
+      if (phoneEdgeGlow) {
+        phoneEdgeGlow.material.color.setHex(side === 'left' ? 0x06b6d4 : 0xec4899);
+        phoneEdgeGlow.material.opacity = 1.0;
+      }
+
+      badge.classList.remove('hidden', 'bg-cyan-500', 'bg-pink-500');
+      badge.classList.add(side === 'left' ? 'bg-cyan-500' : 'bg-pink-500');
+      badge.textContent = side === 'left' ? 'BOOM DETECTED' : 'BAP DETECTED';
+
+      setTimeout(() => {
+        if (phoneEdgeGlow) phoneEdgeGlow.material.opacity = 0.4;
+        badge.classList.add('hidden');
+      }, 250);
+    }
+
+    function addLogEntry(text, colorClass) {
+      const logContainer = document.getElementById('logContainer');
+      const entry = document.createElement('div');
+      entry.className = colorClass;
+      entry.textContent = text;
+      logContainer.prepend(entry);
+
+      if (logContainer.children.length > 25) {
+        logContainer.removeChild(logContainer.lastChild);
+      }
+    }
+
+    function clearLogs() {
+      document.getElementById('logContainer').innerHTML = '<div class="text-slate-600 italic">Logs cleared. Ready...</div>';
+    }
+
+    function recalibrateZero() {
+      orientationZero.alpha = orientation.alpha;
+      orientationZero.beta = orientation.beta;
+      orientationZero.gamma = orientation.gamma;
+      addLogEntry('Orientation baseline calibrated to current angle.', 'text-amber-400');
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const now = performance.now();
+      if (now - lastRateCalc >= 1000) {
+        document.getElementById('rateDisplay').textContent = `${eventCount} Hz IMU`;
+        eventCount = 0;
+        lastRateCalc = now;
+      }
+
+      const relRoll = orientation.gamma - orientationZero.gamma;
+      const relPitch = orientation.beta - orientationZero.beta;
+      const relYaw = (orientation.alpha - orientationZero.alpha + 360) % 360;
+
+      document.getElementById('valRoll').textContent = relRoll.toFixed(1) + '°';
+      document.getElementById('valPitch').textContent = relPitch.toFixed(1) + '°';
+      document.getElementById('valYaw').textContent = relYaw.toFixed(1) + '°';
+
+      if (phoneMesh) {
+        phoneMesh.rotation.x = THREE.MathUtils.degToRad(relPitch);
+        phoneMesh.rotation.y = THREE.MathUtils.degToRad(relRoll);
+        phoneMesh.rotation.z = -THREE.MathUtils.degToRad(relYaw);
+      }
+
+      if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+      }
+
+      graphData.roll.shift(); graphData.roll.push(relRoll);
+      graphData.pitch.shift(); graphData.pitch.push(relPitch);
+      graphData.yaw.shift(); graphData.yaw.push(relYaw);
+      graphData.impulse.shift(); graphData.impulse.push(impulsePeak);
+
+      impulsePeak *= 0.82;
+
+      renderGraph();
+    }
+
+    window.onload = function() {
+      initThreeJS();
+
+      document.getElementById('sliderThreshold').addEventListener('input', (e) => {
+        threshold = parseFloat(e.target.value);
+        document.getElementById('lblThreshold').textContent = threshold.toFixed(1) + ' m/s²';
+      });
+
+      document.getElementById('sliderDebounce').addEventListener('input', (e) => {
+        debounceMs = parseInt(e.target.value);
+        document.getElementById('lblDebounce').textContent = debounceMs + ' ms';
+      });
+
+      document.getElementById('sliderFilter').addEventListener('input', (e) => {
+        filterAlpha = parseFloat(e.target.value);
+        document.getElementById('lblFilter').textContent = filterAlpha.toFixed(2);
+      });
+
+      animate();
+    };
+  </script>
+</body>
+</html>
